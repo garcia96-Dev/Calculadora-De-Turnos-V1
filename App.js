@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, KeyboardAvoidingView, ScrollView, Alert, TextInput } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, KeyboardAvoidingView, ScrollView, Alert, TextInput, StatusBar, Platform, Modal } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
@@ -106,6 +108,7 @@ export default function App() {
   const [jornadaLaboral, setJornadaLaboral] = useState('8');
   const [resultado, setResultado] = useState(null);
   const [turnosGuardados, setTurnosGuardados] = useState({});
+  const [mostrarModalCalendario, setMostrarModalCalendario] = useState(false);
 
   const [mostrarRelojEntrada, setMostrarRelojEntrada] = useState(false);
   const [mostrarRelojSalida, setMostrarRelojSalida] = useState(false);
@@ -269,6 +272,7 @@ export default function App() {
   const alTocarDia = (dia) => {
     const nuevaFecha = dia.dateString;
     setFechaSeleccionada(nuevaFecha);
+    setMostrarModalCalendario(false);
     const turnoDeEseDia = turnosGuardados[nuevaFecha];
     if (turnoDeEseDia) {
       setResultado(turnoDeEseDia);
@@ -380,13 +384,38 @@ export default function App() {
   };
 
   return (
-    <KeyboardAvoidingView behavior="padding" style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.title}>Calculadora de Turnos</Text>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle="dark-content" backgroundColor="#f5f5f5" />
+      <KeyboardAvoidingView behavior="padding" style={styles.container}>
+        <ScrollView contentContainerStyle={styles.scroll}>
+          <Text style={styles.title}>Calculadora de Turnos</Text>
 
-        <View style={styles.calendarContainer}>
-          <Calendar onDayPress={alTocarDia} markedDates={marcadoresFinales} theme={{ todayTextColor: '#007AFF', arrowColor: '#007AFF', selectedDotColor: '#ffffff' }} />
-        </View>
+        <TouchableOpacity style={styles.dateSelectorCompact} onPress={() => setMostrarModalCalendario(true)} activeOpacity={0.8}>
+          <Ionicons name="calendar-outline" size={22} color="#007AFF" />
+          <Text style={styles.dateSelectorCompactText}>
+            {dayjs(fechaSeleccionada).format('DD/MM/YYYY')}
+          </Text>
+          <Ionicons name="chevron-forward" size={20} color="#999" />
+        </TouchableOpacity>
+
+        <Modal
+          visible={mostrarModalCalendario}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setMostrarModalCalendario(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Selecciona una fecha</Text>
+                <TouchableOpacity onPress={() => setMostrarModalCalendario(false)}>
+                  <Ionicons name="close" size={26} color="#333" />
+                </TouchableOpacity>
+              </View>
+              <Calendar onDayPress={alTocarDia} markedDates={marcadoresFinales} theme={{ todayTextColor: '#007AFF', arrowColor: '#007AFF', selectedDotColor: '#ffffff' }} />
+            </View>
+          </View>
+        </Modal>
 
         {/* --- TARJETA: RESUMEN POR RANGO DE FECHAS --- */}
         <View style={styles.monthCard}>
@@ -535,8 +564,9 @@ export default function App() {
             )}
           </View>
         )}
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -546,6 +576,24 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: 'bold', textAlign: 'center', marginBottom: 20, color: '#333' },
   subtitle: { fontSize: 16, fontWeight: 'bold', textAlign: 'center', color: '#007AFF', marginBottom: 20 },
   calendarContainer: { backgroundColor: '#fff', borderRadius: 10, padding: 5, marginBottom: 20, elevation: 2 },
+
+  dateSelectorCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 20,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  dateSelectorCompactText: { flex: 1, fontSize: 17, fontWeight: 'bold', color: '#333', marginLeft: 10 },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 30 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
   
   // Estilos del Resumen Mensual
   monthCard: { backgroundColor: '#eef6ff', padding: 20, borderRadius: 10, borderWidth: 1, borderColor: '#d0e3ff', marginBottom: 25, elevation: 2 },
