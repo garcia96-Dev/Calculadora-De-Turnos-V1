@@ -22,6 +22,7 @@ LocaleConfig.locales['es'] = {
 LocaleConfig.defaultLocale = 'es';
 
 const STORAGE_KEY = '@mis_turnos';
+const CONFIG_KEY = '@config_app';
 
 // --- FESTIVOS DE COLOMBIA ---
 
@@ -121,9 +122,41 @@ export default function App() {
   const [mostrarSelectorInicio, setMostrarSelectorInicio] = useState(false);
   const [mostrarSelectorFin, setMostrarSelectorFin] = useState(false);
 
+  // --- Configuración (horario nocturno editable y festivos personalizados) ---
+  const [mostrarConfiguracion, setMostrarConfiguracion] = useState(false);
+  const [horaInicioNocturno, setHoraInicioNocturno] = useState('19:00');
+  const [horaFinNocturno, setHoraFinNocturno] = useState('06:00');
+  const [festivosPersonalizados, setFestivosPersonalizados] = useState([]);
+  const [mostrarRelojInicioNocturno, setMostrarRelojInicioNocturno] = useState(false);
+  const [mostrarRelojFinNocturno, setMostrarRelojFinNocturno] = useState(false);
+  const [mostrarSelectorFestivo, setMostrarSelectorFestivo] = useState(false);
+
   useEffect(() => {
     cargarTurnosDesdememoria();
+    cargarConfiguracion();
   }, []);
+
+  const cargarConfiguracion = async () => {
+    try {
+      const configString = await AsyncStorage.getItem(CONFIG_KEY);
+      if (configString !== null) {
+        const config = JSON.parse(configString);
+        if (config.horaInicioNocturno) setHoraInicioNocturno(config.horaInicioNocturno);
+        if (config.horaFinNocturno) setHoraFinNocturno(config.horaFinNocturno);
+        if (Array.isArray(config.festivosPersonalizados)) setFestivosPersonalizados(config.festivosPersonalizados);
+      }
+    } catch (error) {
+      console.error("Error al cargar configuración:", error);
+    }
+  };
+
+  const guardarConfiguracion = async (nuevaConfig) => {
+    try {
+      await AsyncStorage.setItem(CONFIG_KEY, JSON.stringify(nuevaConfig));
+    } catch (error) {
+      Alert.alert("Error", "No se pudo guardar la configuración.");
+    }
+  };
 
   const cargarTurnosDesdememoria = async () => {
     try {
@@ -190,6 +223,64 @@ export default function App() {
       setRangoFin(nuevoFin);
       if (dayjs(nuevoFin).isBefore(dayjs(rangoInicio))) setRangoInicio(nuevoFin);
     }
+  };
+
+  const alCambiarHoraInicioNocturno = (event, fecha) => {
+    setMostrarRelojInicioNocturno(false);
+    if (fecha) {
+      const nuevoValor = dayjs(fecha).format('HH:mm');
+      setHoraInicioNocturno(nuevoValor);
+      guardarConfiguracion({ horaInicioNocturno: nuevoValor, horaFinNocturno, festivosPersonalizados });
+    }
+  };
+
+  const alCambiarHoraFinNocturno = (event, fecha) => {
+    setMostrarRelojFinNocturno(false);
+    if (fecha) {
+      const nuevoValor = dayjs(fecha).format('HH:mm');
+      setHoraFinNocturno(nuevoValor);
+      guardarConfiguracion({ horaInicioNocturno, horaFinNocturno: nuevoValor, festivosPersonalizados });
+    }
+  };
+
+  const alAgregarFestivoPersonalizado = (event, fecha) => {
+    setMostrarSelectorFestivo(false);
+    if (fecha) {
+      const fechaStr = dayjs(fecha).format('YYYY-MM-DD');
+      if (festivosPersonalizados.includes(fechaStr)) {
+        Alert.alert("Ya existe", "Esa fecha ya está en tu lista de festivos personalizados.");
+        return;
+      }
+      const nuevaLista = [...festivosPersonalizados, fechaStr].sort();
+      setFestivosPersonalizados(nuevaLista);
+      guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados: nuevaLista });
+    }
+  };
+
+  const eliminarFestivoPersonalizado = (fechaStr) => {
+    const nuevaLista = festivosPersonalizados.filter(f => f !== fechaStr);
+    setFestivosPersonalizados(nuevaLista);
+    guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados: nuevaLista });
+  };
+
+  // true si el minuto del día (0-1439) cae dentro del horario nocturno configurado
+  const esMinutoNocturno = (horaDelReloj, minutoDelReloj) => {
+    const minutosDelDia = horaDelReloj * 60 + minutoDelReloj;
+    const [hInicio, mInicio] = horaInicioNocturno.split(':').map(Number);
+    const [hFin, mFin] = horaFinNocturno.split(':').map(Number);
+    const inicioMin = hInicio * 60 + mInicio;
+    const finMin = hFin * 60 + mFin;
+    if (inicioMin > finMin) {
+      // El rango nocturno cruza la medianoche (caso típico, ej: 19:00 a 06:00)
+      return minutosDelDia >= inicioMin || minutosDelDia < finMin;
+    }
+    // Rango nocturno que no cruza medianoche (caso atípico)
+    return minutosDelDia >= inicioMin && minutosDelDia < finMin;
+  };
+
+  // Combina festivos oficiales de Colombia con los festivos personalizados del usuario
+  const esDiaEspecial = (fechaStr) => {
+    return esDominicalOFestivo(fechaStr) || festivosPersonalizados.includes(fechaStr);
   };
 
   const aplicarPresetMesActual = () => {
@@ -313,7 +404,7 @@ export default function App() {
     // Cache local para no recalcular festivos del mismo día varias veces dentro del loop
     const cacheDF = {};
     const esDF = (fechaStr) => {
-      if (cacheDF[fechaStr] === undefined) cacheDF[fechaStr] = esDominicalOFestivo(fechaStr);
+      if (cacheDF[fechaStr] === undefined) cacheDF[fechaStr] = esDiaEspecial(fechaStr);
       return cacheDF[fechaStr];
     };
 
@@ -330,7 +421,7 @@ export default function App() {
     for (let i = 0; i < totalMinutos; i++) {
       let minutoActual = entrada.add(i, 'minute');
       let horaDelReloj = minutoActual.hour();
-      let isNight = horaDelReloj >= 19 || horaDelReloj < 6;
+      let isNight = esMinutoNocturno(horaDelReloj, minutoActual.minute());
       let isExtra = i >= jornadaMinutos;
       let isDF = esDF(minutoActual.format('YYYY-MM-DD'));
 
@@ -390,7 +481,13 @@ export default function App() {
       <StatusBar barStyle="dark-content" backgroundColor="#f5f5f5" />
       <KeyboardAvoidingView behavior="padding" style={styles.container}>
         <ScrollView contentContainerStyle={styles.scroll}>
-          <Text style={styles.title}>Calculadora de Turnos</Text>
+          <View style={styles.titleRow}>
+            <View style={styles.titleSpacer} />
+            <Text style={styles.title}>Calculadora de Turnos</Text>
+            <TouchableOpacity style={styles.titleSpacer} onPress={() => setMostrarConfiguracion(true)}>
+              <Ionicons name="settings-outline" size={24} color="#555" />
+            </TouchableOpacity>
+          </View>
 
         <TouchableOpacity style={styles.dateSelectorCompact} onPress={() => setMostrarModalCalendario(true)} activeOpacity={0.8}>
           <Text style={styles.dateSelectorLabel}>Fecha</Text>
@@ -416,6 +513,79 @@ export default function App() {
                 </TouchableOpacity>
               </View>
               <Calendar onDayPress={alTocarDia} markedDates={marcadoresFinales} theme={{ todayTextColor: '#007AFF', arrowColor: '#007AFF', selectedDotColor: '#ffffff' }} />
+            </View>
+          </View>
+        </Modal>
+
+        <Modal
+          visible={mostrarConfiguracion}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setMostrarConfiguracion(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, styles.modalContentAlto]}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Configuración</Text>
+                <TouchableOpacity onPress={() => setMostrarConfiguracion(false)}>
+                  <Ionicons name="close" size={26} color="#333" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={styles.configSectionTitle}>Horario Nocturno</Text>
+                <Text style={styles.configSectionHint}>
+                  Define desde qué hora hasta qué hora se considera trabajo nocturno (recargo).
+                </Text>
+                <View style={styles.rangeRow}>
+                  <TouchableOpacity style={styles.rangeSelector} onPress={() => setMostrarRelojInicioNocturno(true)}>
+                    <Text style={styles.rangeLabel}>Desde</Text>
+                    <Text style={styles.rangeValue}>{horaInicioNocturno}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.rangeSelector} onPress={() => setMostrarRelojFinNocturno(true)}>
+                    <Text style={styles.rangeLabel}>Hasta</Text>
+                    <Text style={styles.rangeValue}>{horaFinNocturno}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {mostrarRelojInicioNocturno && (
+                  <DateTimePicker value={convertirTextoAFecha(horaInicioNocturno)} mode="time" is24Hour={true} display="default" onChange={alCambiarHoraInicioNocturno} />
+                )}
+                {mostrarRelojFinNocturno && (
+                  <DateTimePicker value={convertirTextoAFecha(horaFinNocturno)} mode="time" is24Hour={true} display="default" onChange={alCambiarHoraFinNocturno} />
+                )}
+
+                <View style={styles.divider} />
+
+                <Text style={styles.configSectionTitle}>Festivos Personalizados</Text>
+                <Text style={styles.configSectionHint}>
+                  Agrega días adicionales (ej. festivos internos de tu empresa) que se calculen como festivo.
+                </Text>
+
+                {festivosPersonalizados.length === 0 && (
+                  <Text style={styles.configEmptyText}>No has agregado festivos personalizados.</Text>
+                )}
+
+                {festivosPersonalizados.map((fechaStr) => (
+                  <View key={fechaStr} style={styles.festivoRow}>
+                    <Text style={styles.festivoRowText}>
+                      {dayjs(fechaStr).format('dddd D [de] MMMM YYYY')}
+                    </Text>
+                    <TouchableOpacity onPress={() => eliminarFestivoPersonalizado(fechaStr)}>
+                      <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+
+                <TouchableOpacity style={styles.addFestivoButton} onPress={() => setMostrarSelectorFestivo(true)}>
+                  <Ionicons name="add-circle-outline" size={20} color="#007AFF" />
+                  <Text style={styles.addFestivoButtonText}>Agregar festivo</Text>
+                </TouchableOpacity>
+
+                {mostrarSelectorFestivo && (
+                  <DateTimePicker value={new Date()} mode="date" display="default" onChange={alAgregarFestivoPersonalizado} />
+                )}
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -576,7 +746,9 @@ export default function App() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   scroll: { padding: 20, justifyContent: 'center', flexGrow: 1 },
-  title: { fontSize: 28, fontWeight: 'bold', textAlign: 'center', marginBottom: 20, color: '#333' },
+  title: { fontSize: 28, fontWeight: 'bold', textAlign: 'center', color: '#333', flex: 1 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+  titleSpacer: { width: 24 },
   subtitle: { fontSize: 16, fontWeight: 'bold', textAlign: 'center', color: '#007AFF', marginBottom: 20 },
   calendarContainer: { backgroundColor: '#fff', borderRadius: 10, padding: 5, marginBottom: 20, elevation: 2 },
 
@@ -604,8 +776,17 @@ const styles = StyleSheet.create({
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 30 },
+  modalContentAlto: { maxHeight: '85%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
   modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
+
+  configSectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 4 },
+  configSectionHint: { fontSize: 13, color: '#888', marginBottom: 12 },
+  configEmptyText: { fontSize: 14, color: '#999', fontStyle: 'italic', marginBottom: 10 },
+  festivoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f7f7f7', borderRadius: 8, padding: 12, marginBottom: 8 },
+  festivoRowText: { fontSize: 14, color: '#333', flex: 1, marginRight: 10, textTransform: 'capitalize' },
+  addFestivoButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#007AFF', borderRadius: 10, paddingVertical: 12, marginTop: 5, marginBottom: 10, gap: 8 },
+  addFestivoButtonText: { color: '#007AFF', fontWeight: 'bold', fontSize: 15 },
   
   // Estilos del Resumen Mensual
   monthCard: { backgroundColor: '#eef6ff', padding: 20, borderRadius: 10, borderWidth: 1, borderColor: '#d0e3ff', marginBottom: 25, elevation: 2 },
