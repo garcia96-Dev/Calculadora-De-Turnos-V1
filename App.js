@@ -3,12 +3,14 @@ import { StyleSheet, Text, View, TouchableOpacity, KeyboardAvoidingView, ScrollV
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
+import 'dayjs/locale/es';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import AsyncStorage from '@react-native-async-storage/async-storage'; 
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 dayjs.extend(customParseFormat);
+dayjs.locale('es');
 
 LocaleConfig.locales['es'] = {
   monthNames: ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'],
@@ -391,11 +393,12 @@ export default function App() {
           <Text style={styles.title}>Calculadora de Turnos</Text>
 
         <TouchableOpacity style={styles.dateSelectorCompact} onPress={() => setMostrarModalCalendario(true)} activeOpacity={0.8}>
-          <Ionicons name="calendar-outline" size={22} color="#007AFF" />
-          <Text style={styles.dateSelectorCompactText}>
-            {dayjs(fechaSeleccionada).format('DD/MM/YYYY')}
-          </Text>
-          <Ionicons name="chevron-forward" size={20} color="#999" />
+          <Text style={styles.dateSelectorLabel}>Fecha</Text>
+          <View style={styles.dateSelectorBadge}>
+            <Text style={styles.dateSelectorBadgeText}>
+              {dayjs(fechaSeleccionada).format('D MMM YYYY')}
+            </Text>
+          </View>
         </TouchableOpacity>
 
         <Modal
@@ -580,15 +583,24 @@ const styles = StyleSheet.create({
   dateSelectorCompact: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 15,
+    borderRadius: 30,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     marginBottom: 20,
     elevation: 2,
     borderWidth: 1,
     borderColor: '#e0e0e0',
   },
-  dateSelectorCompactText: { flex: 1, fontSize: 17, fontWeight: 'bold', color: '#333', marginLeft: 10 },
+  dateSelectorLabel: { fontSize: 17, color: '#333' },
+  dateSelectorBadge: {
+    backgroundColor: '#eee',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  dateSelectorBadgeText: { fontSize: 16, fontWeight: 'bold', color: '#333' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 30 },
