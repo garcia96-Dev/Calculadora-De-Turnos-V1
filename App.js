@@ -295,8 +295,8 @@ export default function App() {
       Alert.alert("Jornada inválida", "Ingresa un número válido de horas para la jornada base (ej: 8).");
       return;
     }
-    if (jornadaNumerica <= 0 || jornadaNumerica > 24) {
-      Alert.alert("Jornada inválida", "La jornada base debe ser mayor a 0 y no puede superar 24 horas.");
+    if (jornadaNumerica < 0 || jornadaNumerica > 24) {
+      Alert.alert("Jornada inválida", "La jornada base no puede ser negativa ni superar 24 horas.");
       return;
     }
 
