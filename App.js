@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, KeyboardAvoidingView, ScrollView, Alert, TextInput, StatusBar, Platform, Modal } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, KeyboardAvoidingView, ScrollView, Alert, TextInput, StatusBar, Platform, Modal, Share } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
@@ -102,6 +102,16 @@ const esDominicalOFestivo = (fechaStr) => {
   if (fecha.day() === 0) return true; // Domingo
   const festivosDelAnio = obtenerFestivosColombia(fecha.year());
   return festivosDelAnio.includes(fechaStr);
+};
+
+// Convierte texto ingresado por el usuario a número, aceptando coma o punto como
+// separador decimal (ej: "8,5" o "8.5"). Devuelve NaN si el formato no es válido,
+// para que el llamador pueda mostrar un mensaje de error claro.
+const parsearDecimal = (texto) => {
+  if (typeof texto !== 'string') return NaN;
+  const normalizado = texto.trim().replace(',', '.');
+  if (!/^\d+(\.\d+)?$/.test(normalizado)) return NaN;
+  return parseFloat(normalizado);
 };
 
 export default function App() {
@@ -381,9 +391,9 @@ export default function App() {
   const calcularHorasYGuardar = () => {
     if (!horaEntrada || !horaSalida) { Alert.alert("Datos incompletos", "Por favor selecciona ambas horas"); return; }
 
-    const jornadaNumerica = parseFloat(jornadaLaboral);
+    const jornadaNumerica = parsearDecimal(jornadaLaboral);
     if (jornadaLaboral === '' || isNaN(jornadaNumerica)) {
-      Alert.alert("Jornada inválida", "Ingresa un número válido de horas para la jornada base (ej: 8).");
+      Alert.alert("Jornada inválida", "Ingresa un número válido de horas para la jornada base (ej: 8 u 8.5).");
       return;
     }
     if (jornadaNumerica < 0 || jornadaNumerica > 24) {
@@ -474,6 +484,51 @@ export default function App() {
         }
       }
     ]);
+  };
+
+  const compartirResumen = async () => {
+    const fechasDelRango = Object.keys(turnosGuardados)
+      .filter(fecha => fecha >= rangoInicio && fecha <= rangoFin)
+      .sort();
+
+    if (fechasDelRango.length === 0) {
+      Alert.alert("Sin turnos", "No hay turnos guardados en este rango de fechas.");
+      return;
+    }
+
+    let texto = `📊 Resumen de Turnos\n`;
+    texto += `📅 ${dayjs(rangoInicio).format('DD/MM/YYYY')} - ${dayjs(rangoFin).format('DD/MM/YYYY')}\n`;
+    texto += `————————————————\n\n`;
+
+    fechasDelRango.forEach(fecha => {
+      const turno = turnosGuardados[fecha];
+      const etiquetaFestivo = turno.esDominicalOFestivo ? ' 🎉' : '';
+      texto += `${dayjs(fecha).format('dddd DD/MM')}${etiquetaFestivo}: ${turno.total} hrs\n`;
+    });
+
+    texto += `\n————————————————\n`;
+    texto += `📌 Días registrados: ${resumenRango.dias}\n`;
+    texto += `⏱ Total Acumulado: ${resumenRango.total} hrs\n\n`;
+    texto += `🥑 Ord. Diurnas: ${resumenRango.diurnas}h\n`;
+    texto += `🌙 Ord. Nocturnas: ${resumenRango.nocturnas}h\n`;
+    texto += `🌶️ Ext. Diurnas: ${resumenRango.extraDiurnas}h\n`;
+    texto += `🌌 Ext. Nocturnas: ${resumenRango.extraNocturnas}h\n`;
+
+    if (resumenRango.diasDominicalFestivo > 0) {
+      texto += `\n🎉 Domingos/Festivos trabajados: ${resumenRango.diasDominicalFestivo}\n`;
+      texto += `Diurna DF: ${resumenRango.diurnasDF}h\n`;
+      texto += `Nocturna DF: ${resumenRango.nocturnasDF}h\n`;
+      if (parseFloat(resumenRango.extraDiurnasDF) > 0 || parseFloat(resumenRango.extraNocturnasDF) > 0) {
+        texto += `Extra Diurna DF: ${resumenRango.extraDiurnasDF}h\n`;
+        texto += `Extra Nocturna DF: ${resumenRango.extraNocturnasDF}h\n`;
+      }
+    }
+
+    try {
+      await Share.share({ message: texto });
+    } catch (error) {
+      console.error('Error al compartir:', error.message);
+    }
   };
 
   return (
@@ -650,6 +705,11 @@ export default function App() {
               )}
             </>
           )}
+
+          <TouchableOpacity style={styles.shareButtonSolid} onPress={compartirResumen}>
+            <Ionicons name="share-social-outline" size={18} color="#fff" />
+            <Text style={styles.shareButtonSolidText}>Compartir Resumen</Text>
+          </TouchableOpacity>
         </View>
 
         <Text style={styles.subtitle}>
@@ -817,6 +877,8 @@ const styles = StyleSheet.create({
   deleteButtonText: { color: '#FF3B30', textAlign: 'center', fontSize: 18, fontWeight: 'bold' },
   resultCard: { marginTop: 30, backgroundColor: '#fff', padding: 20, borderRadius: 10, borderWidth: 1, borderColor: '#e0e0e0', elevation: 2 },
   resultTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10, color: '#333', textAlign: 'center' },
+  shareButtonSolid: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#007AFF', borderRadius: 10, paddingVertical: 12, marginTop: 15, gap: 6 },
+  shareButtonSolidText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
   badgeDominical: { backgroundColor: '#f3e6fb', borderColor: '#AF52DE', borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, marginBottom: 10, alignSelf: 'center' },
   badgeDominicalText: { color: '#AF52DE', fontWeight: 'bold', fontSize: 13 },
   sectionLabel: { fontSize: 13, fontWeight: 'bold', color: '#999', textTransform: 'uppercase', marginTop: 6, marginBottom: 4 },
