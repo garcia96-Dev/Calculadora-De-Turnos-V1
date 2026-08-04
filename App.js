@@ -114,6 +114,24 @@ const parsearDecimal = (texto) => {
   return parseFloat(normalizado);
 };
 
+// Multiplicadores legales colombianos sobre la hora ordinaria, iguales a los
+// porcentajes ya mostrados en el desglose del turno (ej: Nocturna +35% -> 1.35)
+const MULTIPLICADORES_RECARGO = {
+  diurnas: 1.00,
+  nocturnas: 1.35,
+  diurnasDF: 1.75,
+  nocturnasDF: 2.10,
+  extraDiurnas: 1.25,
+  extraNocturnas: 1.75,
+  extraDiurnasDF: 2.00,
+  extraNocturnasDF: 2.50,
+};
+
+const formatearDinero = (numero) => {
+  if (isNaN(numero)) return '$0';
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(numero);
+};
+
 export default function App() {
   const [fechaSeleccionada, setFechaSeleccionada] = useState(dayjs().format('YYYY-MM-DD'));
   const [horaEntrada, setHoraEntrada] = useState(''); 
@@ -132,6 +150,16 @@ export default function App() {
   const [rangoFin, setRangoFin] = useState(dayjs().endOf('month').format('YYYY-MM-DD'));
   const [mostrarSelectorInicio, setMostrarSelectorInicio] = useState(false);
   const [mostrarSelectorFin, setMostrarSelectorFin] = useState(false);
+
+  // --- Navegación por pestañas (Turnos / Recargos) ---
+  const [pantallaActiva, setPantallaActiva] = useState('turnos');
+
+  // --- Rango de fechas para el Valor de Recargos (filtro independiente del resumen) ---
+  const [rangoInicioValor, setRangoInicioValor] = useState(dayjs().startOf('month').format('YYYY-MM-DD'));
+  const [rangoFinValor, setRangoFinValor] = useState(dayjs().endOf('month').format('YYYY-MM-DD'));
+  const [mostrarSelectorInicioValor, setMostrarSelectorInicioValor] = useState(false);
+  const [mostrarSelectorFinValor, setMostrarSelectorFinValor] = useState(false);
+  const [valorHoraOrdinaria, setValorHoraOrdinaria] = useState('');
 
   // --- Configuración (horario nocturno editable y festivos personalizados) ---
   const [mostrarConfiguracion, setMostrarConfiguracion] = useState(false);
@@ -158,6 +186,7 @@ export default function App() {
         if (config.horaFinNocturno) setHoraFinNocturno(config.horaFinNocturno);
         if (Array.isArray(config.festivosPersonalizados)) setFestivosPersonalizados(config.festivosPersonalizados);
         if (config.topeExtraSemanal) setTopeExtraSemanal(config.topeExtraSemanal);
+        if (config.valorHoraOrdinaria) setValorHoraOrdinaria(config.valorHoraOrdinaria);
       }
     } catch (error) {
       console.error("Error al cargar configuración:", error);
@@ -179,8 +208,8 @@ export default function App() {
   // no sobrescribir lo guardado con los valores por defecto del estado inicial.
   useEffect(() => {
     if (!configCargada) return;
-    guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal });
-  }, [horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal, configCargada]);
+    guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal, valorHoraOrdinaria });
+  }, [horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal, valorHoraOrdinaria, configCargada]);
 
   const cargarTurnosDesdememoria = async () => {
     try {
@@ -249,6 +278,24 @@ export default function App() {
     }
   };
 
+  const alCambiarRangoInicioValor = (event, fecha) => {
+    setMostrarSelectorInicioValor(false);
+    if (fecha) {
+      const nuevoInicio = dayjs(fecha).format('YYYY-MM-DD');
+      setRangoInicioValor(nuevoInicio);
+      if (dayjs(nuevoInicio).isAfter(dayjs(rangoFinValor))) setRangoFinValor(nuevoInicio);
+    }
+  };
+
+  const alCambiarRangoFinValor = (event, fecha) => {
+    setMostrarSelectorFinValor(false);
+    if (fecha) {
+      const nuevoFin = dayjs(fecha).format('YYYY-MM-DD');
+      setRangoFinValor(nuevoFin);
+      if (dayjs(nuevoFin).isBefore(dayjs(rangoInicioValor))) setRangoInicioValor(nuevoFin);
+    }
+  };
+
   const alCambiarHoraInicioNocturno = (event, fecha) => {
     setMostrarRelojInicioNocturno(false);
     if (fecha) {
@@ -310,6 +357,17 @@ export default function App() {
     const mesAnterior = dayjs().subtract(1, 'month');
     setRangoInicio(mesAnterior.startOf('month').format('YYYY-MM-DD'));
     setRangoFin(mesAnterior.endOf('month').format('YYYY-MM-DD'));
+  };
+
+  const aplicarPresetMesActualValor = () => {
+    setRangoInicioValor(dayjs().startOf('month').format('YYYY-MM-DD'));
+    setRangoFinValor(dayjs().endOf('month').format('YYYY-MM-DD'));
+  };
+
+  const aplicarPresetMesAnteriorValor = () => {
+    const mesAnterior = dayjs().subtract(1, 'month');
+    setRangoInicioValor(mesAnterior.startOf('month').format('YYYY-MM-DD'));
+    setRangoFinValor(mesAnterior.endOf('month').format('YYYY-MM-DD'));
   };
 
   const marcadoresFinales = useMemo(() => {
@@ -379,6 +437,33 @@ export default function App() {
       horasDominicalFestivo: (diurnasDFMes + nocturnasDFMes + extraDiurnasDFMes + extraNocturnasDFMes).toFixed(2)
     };
   }, [rangoInicio, rangoFin, turnosGuardados]);
+
+  // --- RESUMEN DE VALOR EN DINERO DE LOS RECARGOS (filtro y rango propios) ---
+  const resumenValorRecargos = useMemo(() => {
+    const valorHora = parsearDecimal(valorHoraOrdinaria);
+    const valorHoraValido = !isNaN(valorHora) && valorHora > 0;
+
+    const horas = { diurnas: 0, nocturnas: 0, diurnasDF: 0, nocturnasDF: 0, extraDiurnas: 0, extraNocturnas: 0, extraDiurnasDF: 0, extraNocturnasDF: 0 };
+
+    Object.keys(turnosGuardados).forEach(fecha => {
+      if (fecha >= rangoInicioValor && fecha <= rangoFinValor) {
+        const turno = turnosGuardados[fecha];
+        Object.keys(horas).forEach(categoria => {
+          horas[categoria] += parseFloat(turno[categoria] || 0);
+        });
+      }
+    });
+
+    const dinero = {};
+    let total = 0;
+    Object.keys(horas).forEach(categoria => {
+      const valorCategoria = valorHoraValido ? horas[categoria] * valorHora * MULTIPLICADORES_RECARGO[categoria] : 0;
+      dinero[categoria] = valorCategoria;
+      total += valorCategoria;
+    });
+
+    return { valorHoraValido, horas, dinero, total };
+  }, [turnosGuardados, rangoInicioValor, rangoFinValor, valorHoraOrdinaria]);
 
   // --- HORAS EXTRA DE LA SEMANA (lunes a domingo) que contiene la fecha seleccionada ---
   const resumenSemanaExtra = useMemo(() => {
@@ -570,11 +655,63 @@ export default function App() {
     }
   };
 
+  const compartirValorRecargos = async () => {
+    if (!resumenValorRecargos.valorHoraValido) {
+      Alert.alert("Falta el valor de la hora", "Ingresa el valor de la hora ordinaria para calcular el dinero.");
+      return;
+    }
+
+    let texto = `💰 Valor de Recargos\n`;
+    texto += `📅 ${dayjs(rangoInicioValor).format('DD/MM/YYYY')} - ${dayjs(rangoFinValor).format('DD/MM/YYYY')}\n`;
+    texto += `Hora ordinaria: ${formatearDinero(parsearDecimal(valorHoraOrdinaria))}\n`;
+    texto += `————————————————\n\n`;
+
+    texto += `☀️ Diurna (0%): ${resumenValorRecargos.horas.diurnas.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.diurnas)}\n`;
+    texto += `🌙 Nocturna (+35%): ${resumenValorRecargos.horas.nocturnas.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.nocturnas)}\n`;
+    texto += `🔥 Extra Diurna (+25%): ${resumenValorRecargos.horas.extraDiurnas.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.extraDiurnas)}\n`;
+    texto += `🌌 Extra Nocturna (+75%): ${resumenValorRecargos.horas.extraNocturnas.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.extraNocturnas)}\n`;
+
+    if (resumenValorRecargos.horas.diurnasDF > 0 || resumenValorRecargos.horas.nocturnasDF > 0 ||
+        resumenValorRecargos.horas.extraDiurnasDF > 0 || resumenValorRecargos.horas.extraNocturnasDF > 0) {
+      texto += `\n🎉 Dominical/Festivo:\n`;
+      if (resumenValorRecargos.horas.diurnasDF > 0) texto += `Diurna DF (+75%): ${resumenValorRecargos.horas.diurnasDF.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.diurnasDF)}\n`;
+      if (resumenValorRecargos.horas.nocturnasDF > 0) texto += `Nocturna DF (+110%): ${resumenValorRecargos.horas.nocturnasDF.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.nocturnasDF)}\n`;
+      if (resumenValorRecargos.horas.extraDiurnasDF > 0) texto += `Extra Diurna DF (+100%): ${resumenValorRecargos.horas.extraDiurnasDF.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.extraDiurnasDF)}\n`;
+      if (resumenValorRecargos.horas.extraNocturnasDF > 0) texto += `Extra Nocturna DF (+150%): ${resumenValorRecargos.horas.extraNocturnasDF.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.extraNocturnasDF)}\n`;
+    }
+
+    texto += `\n————————————————\n`;
+    texto += `💵 TOTAL: ${formatearDinero(resumenValorRecargos.total)}\n`;
+
+    try {
+      await Share.share({ message: texto });
+    } catch (error) {
+      console.error('Error al compartir:', error.message);
+    }
+  };
+
+  // Determina si el rango de fechas actual coincide con "Mes Actual" o "Mes Anterior",
+  // para resaltar el botón correspondiente. Si el usuario elige fechas manualmente
+  // que no calzan con ninguno de los dos, ningún botón queda resaltado.
+  const inicioMesActual = dayjs().startOf('month').format('YYYY-MM-DD');
+  const finMesActual = dayjs().endOf('month').format('YYYY-MM-DD');
+  const mesAnteriorRef = dayjs().subtract(1, 'month');
+  const inicioMesAnterior = mesAnteriorRef.startOf('month').format('YYYY-MM-DD');
+  const finMesAnterior = mesAnteriorRef.endOf('month').format('YYYY-MM-DD');
+
+  const esMesActualResumen = rangoInicio === inicioMesActual && rangoFin === finMesActual;
+  const esMesAnteriorResumen = rangoInicio === inicioMesAnterior && rangoFin === finMesAnterior;
+
+  const esMesActualValor = rangoInicioValor === inicioMesActual && rangoFinValor === finMesActual;
+  const esMesAnteriorValor = rangoInicioValor === inicioMesAnterior && rangoFinValor === finMesAnterior;
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="dark-content" backgroundColor="#f5f5f5" />
       <KeyboardAvoidingView behavior="padding" style={styles.container}>
         <ScrollView contentContainerStyle={styles.scroll}>
+        {pantallaActiva === 'turnos' && (
+        <>
           <View style={styles.titleRow}>
             <View style={styles.titleSpacer} />
             <Text style={styles.title}>Calculadora de Turnos</Text>
@@ -727,11 +864,11 @@ export default function App() {
           <Text style={styles.monthTitle}>Resumen</Text>
 
           <View style={styles.presetRow}>
-            <TouchableOpacity style={styles.presetButton} onPress={aplicarPresetMesActual}>
-              <Text style={styles.presetButtonText}>Mes Actual</Text>
+            <TouchableOpacity style={[styles.presetButton, esMesActualResumen && styles.presetButtonActivo]} onPress={aplicarPresetMesActual}>
+              <Text style={[styles.presetButtonText, esMesActualResumen && styles.presetButtonTextActivo]}>Mes Actual</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.presetButton} onPress={aplicarPresetMesAnterior}>
-              <Text style={styles.presetButtonText}>Mes Anterior</Text>
+            <TouchableOpacity style={[styles.presetButton, esMesAnteriorResumen && styles.presetButtonActivo]} onPress={aplicarPresetMesAnterior}>
+              <Text style={[styles.presetButtonText, esMesAnteriorResumen && styles.presetButtonTextActivo]}>Mes Anterior</Text>
             </TouchableOpacity>
           </View>
 
@@ -901,8 +1038,142 @@ export default function App() {
             )}
           </View>
         )}
+        </>
+        )}
+
+        {pantallaActiva === 'recargos' && (
+        <>
+          <View style={styles.titleRow}>
+            <View style={styles.titleSpacer} />
+            <Text style={styles.title}>Valor de Recargos</Text>
+            <View style={styles.titleSpacer} />
+          </View>
+
+          <View style={styles.progresoCard}>
+            <Text style={styles.label}>Valor de la Hora Ordinaria</Text>
+            <TextInput
+              style={[styles.timeSelector, styles.inputText]}
+              value={valorHoraOrdinaria}
+              onChangeText={setValorHoraOrdinaria}
+              keyboardType="numeric"
+              placeholder="Ej: 6500"
+              placeholderTextColor="#999"
+            />
+            {!resumenValorRecargos.valorHoraValido && (
+              <Text style={styles.configEmptyText}>Ingresa el valor de la hora para ver el cálculo en dinero.</Text>
+            )}
+          </View>
+
+          <View style={styles.monthCard}>
+            <Text style={styles.monthTitle}>Filtro de Fechas</Text>
+
+            <View style={styles.presetRow}>
+              <TouchableOpacity style={[styles.presetButton, esMesActualValor && styles.presetButtonActivo]} onPress={aplicarPresetMesActualValor}>
+                <Text style={[styles.presetButtonText, esMesActualValor && styles.presetButtonTextActivo]}>Mes Actual</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.presetButton, esMesAnteriorValor && styles.presetButtonActivo]} onPress={aplicarPresetMesAnteriorValor}>
+                <Text style={[styles.presetButtonText, esMesAnteriorValor && styles.presetButtonTextActivo]}>Mes Anterior</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.rangeRow}>
+              <TouchableOpacity style={styles.rangeSelector} onPress={() => setMostrarSelectorInicioValor(true)}>
+                <Text style={styles.rangeLabel}>Desde</Text>
+                <Text style={styles.rangeValue}>{dayjs(rangoInicioValor).format('DD/MM/YYYY')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.rangeSelector} onPress={() => setMostrarSelectorFinValor(true)}>
+                <Text style={styles.rangeLabel}>Hasta</Text>
+                <Text style={styles.rangeValue}>{dayjs(rangoFinValor).format('DD/MM/YYYY')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {mostrarSelectorInicioValor && (
+              <DateTimePicker value={dayjs(rangoInicioValor).toDate()} mode="date" display="default" onChange={alCambiarRangoInicioValor} />
+            )}
+            {mostrarSelectorFinValor && (
+              <DateTimePicker value={dayjs(rangoFinValor).toDate()} mode="date" display="default" onChange={alCambiarRangoFinValor} />
+            )}
+          </View>
+
+          <View style={styles.resultCard}>
+            <Text style={styles.resultTitle}>Desglose en Dinero</Text>
+
+            <View style={styles.dineroRow}>
+              <Text style={styles.dineroCategoria}>☀️ Diurna (0%) · {resumenValorRecargos.horas.diurnas.toFixed(2)}h</Text>
+              <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.diurnas)}</Text>
+            </View>
+            <View style={styles.dineroRow}>
+              <Text style={styles.dineroCategoria}>🌙 Nocturna (+35%) · {resumenValorRecargos.horas.nocturnas.toFixed(2)}h</Text>
+              <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.nocturnas)}</Text>
+            </View>
+            <View style={styles.dineroRow}>
+              <Text style={styles.dineroCategoria}>🔥 Extra Diurna (+25%) · {resumenValorRecargos.horas.extraDiurnas.toFixed(2)}h</Text>
+              <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.extraDiurnas)}</Text>
+            </View>
+            <View style={styles.dineroRow}>
+              <Text style={styles.dineroCategoria}>🌌 Extra Nocturna (+75%) · {resumenValorRecargos.horas.extraNocturnas.toFixed(2)}h</Text>
+              <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.extraNocturnas)}</Text>
+            </View>
+
+            {(resumenValorRecargos.horas.diurnasDF > 0 || resumenValorRecargos.horas.nocturnasDF > 0 ||
+              resumenValorRecargos.horas.extraDiurnasDF > 0 || resumenValorRecargos.horas.extraNocturnasDF > 0) && (
+              <>
+                <View style={styles.divider} />
+                <Text style={styles.monthSubtitle}>🎉 Dominical/Festivo</Text>
+                {resumenValorRecargos.horas.diurnasDF > 0 && (
+                  <View style={styles.dineroRow}>
+                    <Text style={styles.dineroCategoria}>Diurna DF (+75%) · {resumenValorRecargos.horas.diurnasDF.toFixed(2)}h</Text>
+                    <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.diurnasDF)}</Text>
+                  </View>
+                )}
+                {resumenValorRecargos.horas.nocturnasDF > 0 && (
+                  <View style={styles.dineroRow}>
+                    <Text style={styles.dineroCategoria}>Nocturna DF (+110%) · {resumenValorRecargos.horas.nocturnasDF.toFixed(2)}h</Text>
+                    <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.nocturnasDF)}</Text>
+                  </View>
+                )}
+                {resumenValorRecargos.horas.extraDiurnasDF > 0 && (
+                  <View style={styles.dineroRow}>
+                    <Text style={styles.dineroCategoria}>Extra Diurna DF (+100%) · {resumenValorRecargos.horas.extraDiurnasDF.toFixed(2)}h</Text>
+                    <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.extraDiurnasDF)}</Text>
+                  </View>
+                )}
+                {resumenValorRecargos.horas.extraNocturnasDF > 0 && (
+                  <View style={styles.dineroRow}>
+                    <Text style={styles.dineroCategoria}>Extra Nocturna DF (+150%) · {resumenValorRecargos.horas.extraNocturnasDF.toFixed(2)}h</Text>
+                    <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.extraNocturnasDF)}</Text>
+                  </View>
+                )}
+              </>
+            )}
+
+            <View style={styles.divider} />
+
+            <View style={styles.dineroTotalRow}>
+              <Text style={styles.dineroTotalLabel}>TOTAL</Text>
+              <Text style={styles.dineroTotalValor}>{formatearDinero(resumenValorRecargos.total)}</Text>
+            </View>
+
+            <TouchableOpacity style={styles.shareButtonSolid} onPress={compartirValorRecargos}>
+              <Ionicons name="share-social-outline" size={18} color="#fff" />
+              <Text style={styles.shareButtonSolidText}>Compartir Valor de Recargos</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+        )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <View style={styles.tabBar}>
+        <TouchableOpacity style={styles.tabItem} onPress={() => setPantallaActiva('turnos')} activeOpacity={0.7}>
+          <Ionicons name="time-outline" size={24} color={pantallaActiva === 'turnos' ? '#007AFF' : '#999'} />
+          <Text style={[styles.tabLabel, pantallaActiva === 'turnos' && styles.tabLabelActivo]}>Turnos</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.tabItem} onPress={() => setPantallaActiva('recargos')} activeOpacity={0.7}>
+          <Ionicons name="cash-outline" size={24} color={pantallaActiva === 'recargos' ? '#007AFF' : '#999'} />
+          <Text style={[styles.tabLabel, pantallaActiva === 'recargos' && styles.tabLabelActivo]}>Recargos</Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
@@ -937,6 +1208,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   dateSelectorBadgeText: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 12,
+  },
+  tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  tabLabel: { fontSize: 12, color: '#999' },
+  tabLabelActivo: { color: '#007AFF', fontWeight: 'bold' },
 
   progresoCard: {
     backgroundColor: '#fff',
@@ -992,10 +1275,19 @@ const styles = StyleSheet.create({
   monthSubText: { fontSize: 14, color: '#444', flex: 1, textAlign: 'center' },
   row: { flexDirection: 'row', justifyContent: 'space-between', marginVertical: 3 },
 
+  dineroRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 },
+  dineroCategoria: { fontSize: 14, color: '#444', flex: 1, marginRight: 8 },
+  dineroValor: { fontSize: 14, fontWeight: '600', color: '#333' },
+  dineroTotalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 },
+  dineroTotalLabel: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  dineroTotalValor: { fontSize: 20, fontWeight: 'bold', color: '#28a745' },
+
   // Estilos del selector de rango
   presetRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 10, gap: 10 },
   presetButton: { backgroundColor: '#d0e3ff', paddingVertical: 6, paddingHorizontal: 14, borderRadius: 20 },
   presetButtonText: { color: '#0056b3', fontWeight: '600', fontSize: 13 },
+  presetButtonActivo: { backgroundColor: '#007AFF' },
+  presetButtonTextActivo: { color: '#fff' },
   rangeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, gap: 10 },
   rangeSelector: { flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#d0e3ff', borderRadius: 8, padding: 10, alignItems: 'center' },
   rangeLabel: { fontSize: 12, color: '#888' },
