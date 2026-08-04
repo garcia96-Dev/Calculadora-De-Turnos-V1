@@ -142,6 +142,7 @@ export default function App() {
   const [mostrarRelojFinNocturno, setMostrarRelojFinNocturno] = useState(false);
   const [mostrarSelectorFestivo, setMostrarSelectorFestivo] = useState(false);
   const [topeExtraSemanal, setTopeExtraSemanal] = useState('12');
+  const [configCargada, setConfigCargada] = useState(false);
 
   useEffect(() => {
     cargarTurnosDesdememoria();
@@ -160,6 +161,8 @@ export default function App() {
       }
     } catch (error) {
       console.error("Error al cargar configuración:", error);
+    } finally {
+      setConfigCargada(true);
     }
   };
 
@@ -170,6 +173,14 @@ export default function App() {
       Alert.alert("Error", "No se pudo guardar la configuración.");
     }
   };
+
+  // Autoguarda la configuración cada vez que cambia alguno de estos valores.
+  // Se ignora el primer render (antes de que cargarConfiguracion termine) para
+  // no sobrescribir lo guardado con los valores por defecto del estado inicial.
+  useEffect(() => {
+    if (!configCargada) return;
+    guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal });
+  }, [horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal, configCargada]);
 
   const cargarTurnosDesdememoria = async () => {
     try {
@@ -241,18 +252,14 @@ export default function App() {
   const alCambiarHoraInicioNocturno = (event, fecha) => {
     setMostrarRelojInicioNocturno(false);
     if (fecha) {
-      const nuevoValor = dayjs(fecha).format('HH:mm');
-      setHoraInicioNocturno(nuevoValor);
-      guardarConfiguracion({ horaInicioNocturno: nuevoValor, horaFinNocturno, festivosPersonalizados, topeExtraSemanal });
+      setHoraInicioNocturno(dayjs(fecha).format('HH:mm'));
     }
   };
 
   const alCambiarHoraFinNocturno = (event, fecha) => {
     setMostrarRelojFinNocturno(false);
     if (fecha) {
-      const nuevoValor = dayjs(fecha).format('HH:mm');
-      setHoraFinNocturno(nuevoValor);
-      guardarConfiguracion({ horaInicioNocturno, horaFinNocturno: nuevoValor, festivosPersonalizados, topeExtraSemanal });
+      setHoraFinNocturno(dayjs(fecha).format('HH:mm'));
     }
   };
 
@@ -266,19 +273,12 @@ export default function App() {
       }
       const nuevaLista = [...festivosPersonalizados, fechaStr].sort();
       setFestivosPersonalizados(nuevaLista);
-      guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados: nuevaLista, topeExtraSemanal });
     }
   };
 
   const eliminarFestivoPersonalizado = (fechaStr) => {
     const nuevaLista = festivosPersonalizados.filter(f => f !== fechaStr);
     setFestivosPersonalizados(nuevaLista);
-    guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados: nuevaLista, topeExtraSemanal });
-  };
-
-  const alCambiarTopeExtraSemanal = (texto) => {
-    setTopeExtraSemanal(texto);
-    guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal: texto });
   };
 
   // true si el minuto del día (0-1439) cae dentro del horario nocturno configurado
@@ -712,7 +712,7 @@ export default function App() {
                 <TextInput
                   style={[styles.timeSelector, styles.inputText]}
                   value={topeExtraSemanal}
-                  onChangeText={alCambiarTopeExtraSemanal}
+                  onChangeText={setTopeExtraSemanal}
                   keyboardType="numeric"
                   placeholder="Ej: 12"
                   placeholderTextColor="#999"
