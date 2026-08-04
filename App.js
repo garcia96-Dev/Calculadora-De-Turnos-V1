@@ -141,6 +141,7 @@ export default function App() {
   const [mostrarRelojInicioNocturno, setMostrarRelojInicioNocturno] = useState(false);
   const [mostrarRelojFinNocturno, setMostrarRelojFinNocturno] = useState(false);
   const [mostrarSelectorFestivo, setMostrarSelectorFestivo] = useState(false);
+  const [topeExtraSemanal, setTopeExtraSemanal] = useState('12');
 
   useEffect(() => {
     cargarTurnosDesdememoria();
@@ -155,6 +156,7 @@ export default function App() {
         if (config.horaInicioNocturno) setHoraInicioNocturno(config.horaInicioNocturno);
         if (config.horaFinNocturno) setHoraFinNocturno(config.horaFinNocturno);
         if (Array.isArray(config.festivosPersonalizados)) setFestivosPersonalizados(config.festivosPersonalizados);
+        if (config.topeExtraSemanal) setTopeExtraSemanal(config.topeExtraSemanal);
       }
     } catch (error) {
       console.error("Error al cargar configuración:", error);
@@ -241,7 +243,7 @@ export default function App() {
     if (fecha) {
       const nuevoValor = dayjs(fecha).format('HH:mm');
       setHoraInicioNocturno(nuevoValor);
-      guardarConfiguracion({ horaInicioNocturno: nuevoValor, horaFinNocturno, festivosPersonalizados });
+      guardarConfiguracion({ horaInicioNocturno: nuevoValor, horaFinNocturno, festivosPersonalizados, topeExtraSemanal });
     }
   };
 
@@ -250,7 +252,7 @@ export default function App() {
     if (fecha) {
       const nuevoValor = dayjs(fecha).format('HH:mm');
       setHoraFinNocturno(nuevoValor);
-      guardarConfiguracion({ horaInicioNocturno, horaFinNocturno: nuevoValor, festivosPersonalizados });
+      guardarConfiguracion({ horaInicioNocturno, horaFinNocturno: nuevoValor, festivosPersonalizados, topeExtraSemanal });
     }
   };
 
@@ -264,14 +266,19 @@ export default function App() {
       }
       const nuevaLista = [...festivosPersonalizados, fechaStr].sort();
       setFestivosPersonalizados(nuevaLista);
-      guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados: nuevaLista });
+      guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados: nuevaLista, topeExtraSemanal });
     }
   };
 
   const eliminarFestivoPersonalizado = (fechaStr) => {
     const nuevaLista = festivosPersonalizados.filter(f => f !== fechaStr);
     setFestivosPersonalizados(nuevaLista);
-    guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados: nuevaLista });
+    guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados: nuevaLista, topeExtraSemanal });
+  };
+
+  const alCambiarTopeExtraSemanal = (texto) => {
+    setTopeExtraSemanal(texto);
+    guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal: texto });
   };
 
   // true si el minuto del día (0-1439) cae dentro del horario nocturno configurado
@@ -372,6 +379,35 @@ export default function App() {
       horasDominicalFestivo: (diurnasDFMes + nocturnasDFMes + extraDiurnasDFMes + extraNocturnasDFMes).toFixed(2)
     };
   }, [rangoInicio, rangoFin, turnosGuardados]);
+
+  // --- HORAS EXTRA DE LA SEMANA (lunes a domingo) que contiene la fecha seleccionada ---
+  const resumenSemanaExtra = useMemo(() => {
+    const inicioSemana = dayjs(fechaSeleccionada).startOf('week').format('YYYY-MM-DD');
+    const finSemana = dayjs(fechaSeleccionada).endOf('week').format('YYYY-MM-DD');
+
+    let horasExtra = 0;
+    Object.keys(turnosGuardados).forEach(fecha => {
+      if (fecha >= inicioSemana && fecha <= finSemana) {
+        const turno = turnosGuardados[fecha];
+        horasExtra += parseFloat(turno.extraDiurnas || 0);
+        horasExtra += parseFloat(turno.extraNocturnas || 0);
+        horasExtra += parseFloat(turno.extraDiurnasDF || 0);
+        horasExtra += parseFloat(turno.extraNocturnasDF || 0);
+      }
+    });
+
+    const tope = parsearDecimal(topeExtraSemanal) > 0 ? parsearDecimal(topeExtraSemanal) : 12;
+    const porcentaje = Math.min((horasExtra / tope) * 100, 100);
+
+    return {
+      inicioSemana,
+      finSemana,
+      horasExtra: horasExtra.toFixed(2),
+      tope,
+      porcentaje,
+      excedido: horasExtra > tope,
+    };
+  }, [fechaSeleccionada, turnosGuardados, topeExtraSemanal]);
 
   const alTocarDia = (dia) => {
     const nuevaFecha = dia.dateString;
@@ -556,6 +592,29 @@ export default function App() {
           </View>
         </TouchableOpacity>
 
+        <View style={styles.progresoCard}>
+          <View style={styles.progresoHeader}>
+            <Text style={styles.progresoLabel}>
+              Extras esta semana ({dayjs(resumenSemanaExtra.inicioSemana).format('D MMM')} - {dayjs(resumenSemanaExtra.finSemana).format('D MMM')})
+            </Text>
+            <Text style={[styles.progresoValor, resumenSemanaExtra.excedido && styles.progresoValorExcedido]}>
+              {resumenSemanaExtra.horasExtra} / {resumenSemanaExtra.tope} hrs
+            </Text>
+          </View>
+          <View style={styles.progresoBarraFondo}>
+            <View
+              style={[
+                styles.progresoBarraRelleno,
+                { width: `${resumenSemanaExtra.porcentaje}%` },
+                resumenSemanaExtra.excedido && styles.progresoBarraRellenoExcedido,
+              ]}
+            />
+          </View>
+          {resumenSemanaExtra.excedido && (
+            <Text style={styles.progresoAlerta}>⚠️ Superaste el tope semanal de horas extra</Text>
+          )}
+        </View>
+
         <Modal
           visible={mostrarModalCalendario}
           animationType="slide"
@@ -643,6 +702,21 @@ export default function App() {
                 {mostrarSelectorFestivo && (
                   <DateTimePicker value={new Date()} mode="date" display="default" onChange={alAgregarFestivoPersonalizado} />
                 )}
+
+                <View style={styles.divider} />
+
+                <Text style={styles.configSectionTitle}>Tope de Horas Extra Semanal</Text>
+                <Text style={styles.configSectionHint}>
+                  Límite semanal de horas extra usado para la barra de progreso (por defecto 12 hrs).
+                </Text>
+                <TextInput
+                  style={[styles.timeSelector, styles.inputText]}
+                  value={topeExtraSemanal}
+                  onChangeText={alCambiarTopeExtraSemanal}
+                  keyboardType="numeric"
+                  placeholder="Ej: 12"
+                  placeholderTextColor="#999"
+                />
               </ScrollView>
             </View>
           </View>
@@ -863,6 +937,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   dateSelectorBadgeText: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+
+  progresoCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 20,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  progresoHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  progresoLabel: { fontSize: 13, color: '#666', flex: 1, marginRight: 8 },
+  progresoValor: { fontSize: 14, fontWeight: 'bold', color: '#007AFF' },
+  progresoValorExcedido: { color: '#FF3B30' },
+  progresoBarraFondo: {
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#eee',
+    overflow: 'hidden',
+  },
+  progresoBarraRelleno: {
+    height: '100%',
+    borderRadius: 6,
+    backgroundColor: '#007AFF',
+  },
+  progresoBarraRellenoExcedido: { backgroundColor: '#FF3B30' },
+  progresoAlerta: { fontSize: 12, color: '#FF3B30', marginTop: 8, fontWeight: '600' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 30 },
