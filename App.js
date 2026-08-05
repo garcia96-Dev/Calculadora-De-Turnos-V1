@@ -729,6 +729,85 @@ export default function App() {
           </View>
         </TouchableOpacity>
 
+        <TouchableOpacity style={styles.dateSelectorCompact} onPress={() => setMostrarModalRegistro(true)} activeOpacity={0.8}>
+          <Text style={styles.dateSelectorLabel}>Horario del Turno</Text>
+          <View style={styles.dateSelectorBadge}>
+            <Text style={styles.dateSelectorBadgeText}>
+              {horaEntrada && horaSalida ? `${horaEntrada} - ${horaSalida}` : "Toca para registrar"}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <Modal
+          visible={mostrarModalRegistro}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setMostrarModalRegistro(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Registrar Turno</Text>
+                <TouchableOpacity onPress={() => setMostrarModalRegistro(false)}>
+                  <Ionicons name="close" size={26} color="#333" />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.subtitle}>
+                {dayjs(fechaSeleccionada).format('dddd D [de] MMMM YYYY')}
+              </Text>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Hora de Entrada</Text>
+                <TouchableOpacity style={styles.timeSelector} onPress={() => setMostrarRelojEntrada(true)}>
+                  <Text style={[styles.timeText, !horaEntrada && styles.placeholderText]}>
+                    {horaEntrada ? horaEntrada : "Toca para seleccionar..."}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Hora de Salida</Text>
+                <TouchableOpacity style={styles.timeSelector} onPress={() => setMostrarRelojSalida(true)}>
+                  <Text style={[styles.timeText, !horaSalida && styles.placeholderText]}>
+                    {horaSalida ? horaSalida : "Toca para seleccionar..."}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {mostrarRelojEntrada && (
+                <DateTimePicker value={convertirTextoAFecha(horaEntrada)} mode="time" is24Hour={true} display="default" onChange={alCambiarEntrada} />
+              )}
+
+              {mostrarRelojSalida && (
+                <DateTimePicker value={convertirTextoAFecha(horaSalida)} mode="time" is24Hour={true} display="default" onChange={alCambiarSalida} />
+              )}
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Jornada Base (Horas)</Text>
+                <TextInput
+                  style={[styles.timeSelector, styles.inputText]}
+                  value={jornadaLaboral}
+                  onChangeText={setJornadaLaboral}
+                  keyboardType="numeric"
+                  placeholder="Ej: 8"
+                  placeholderTextColor="#999"
+                />
+              </View>
+
+              <TouchableOpacity style={styles.button} onPress={calcularHorasYGuardar}>
+                <Text style={styles.buttonText}>{resultado ? "Actualizar Turno" : "Calcular y Guardar"}</Text>
+              </TouchableOpacity>
+
+              {resultado && (
+                <TouchableOpacity style={styles.deleteButton} onPress={confirmarEliminarTurno}>
+                  <Text style={styles.deleteButtonText}>Borrar Turno</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </Modal>
+
         <View style={styles.progresoCard}>
           <View style={styles.progresoHeader}>
             <Text style={styles.progresoLabel}>
@@ -925,85 +1004,6 @@ export default function App() {
             <Text style={styles.shareButtonSolidText}>Compartir Resumen</Text>
           </TouchableOpacity>
         </View>
-
-        <TouchableOpacity style={styles.dateSelectorCompact} onPress={() => setMostrarModalRegistro(true)} activeOpacity={0.8}>
-          <Text style={styles.dateSelectorLabel}>Horario del Turno</Text>
-          <View style={styles.dateSelectorBadge}>
-            <Text style={styles.dateSelectorBadgeText}>
-              {horaEntrada && horaSalida ? `${horaEntrada} - ${horaSalida}` : "Toca para registrar"}
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-        <Modal
-          visible={mostrarModalRegistro}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setMostrarModalRegistro(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Registrar Turno</Text>
-                <TouchableOpacity onPress={() => setMostrarModalRegistro(false)}>
-                  <Ionicons name="close" size={26} color="#333" />
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.subtitle}>
-                {dayjs(fechaSeleccionada).format('dddd D [de] MMMM YYYY')}
-              </Text>
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>Hora de Entrada</Text>
-                <TouchableOpacity style={styles.timeSelector} onPress={() => setMostrarRelojEntrada(true)}>
-                  <Text style={[styles.timeText, !horaEntrada && styles.placeholderText]}>
-                    {horaEntrada ? horaEntrada : "Toca para seleccionar..."}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>Hora de Salida</Text>
-                <TouchableOpacity style={styles.timeSelector} onPress={() => setMostrarRelojSalida(true)}>
-                  <Text style={[styles.timeText, !horaSalida && styles.placeholderText]}>
-                    {horaSalida ? horaSalida : "Toca para seleccionar..."}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {mostrarRelojEntrada && (
-                <DateTimePicker value={convertirTextoAFecha(horaEntrada)} mode="time" is24Hour={true} display="default" onChange={alCambiarEntrada} />
-              )}
-
-              {mostrarRelojSalida && (
-                <DateTimePicker value={convertirTextoAFecha(horaSalida)} mode="time" is24Hour={true} display="default" onChange={alCambiarSalida} />
-              )}
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>Jornada Base (Horas)</Text>
-                <TextInput
-                  style={[styles.timeSelector, styles.inputText]}
-                  value={jornadaLaboral}
-                  onChangeText={setJornadaLaboral}
-                  keyboardType="numeric"
-                  placeholder="Ej: 8"
-                  placeholderTextColor="#999"
-                />
-              </View>
-
-              <TouchableOpacity style={styles.button} onPress={calcularHorasYGuardar}>
-                <Text style={styles.buttonText}>{resultado ? "Actualizar Turno" : "Calcular y Guardar"}</Text>
-              </TouchableOpacity>
-
-              {resultado && (
-                <TouchableOpacity style={styles.deleteButton} onPress={confirmarEliminarTurno}>
-                  <Text style={styles.deleteButtonText}>Borrar Turno</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        </Modal>
 
         {resultado && (
           <View style={styles.resultCard}>
