@@ -114,19 +114,21 @@ const parsearDecimal = (texto) => {
   return parseFloat(normalizado);
 };
 
-// Multiplicadores legales colombianos sobre la hora ordinaria, iguales a los
-// porcentajes ya mostrados en el desglose del turno (ej: Nocturna +35% -> 1.35)
-// Recargo dominical/festivo vigente: 90% desde el 1 de julio de 2026 (Ley 2466 de
-// 2025, art. 14, que modifica el art. 179 CST). Sube a 100% desde julio de 2027.
-const MULTIPLICADORES_RECARGO = {
-  diurnas: 1.00,
-  nocturnas: 1.35,
-  diurnasDF: 1.90,
-  nocturnasDF: 2.25,
-  extraDiurnas: 1.25,
-  extraNocturnas: 1.75,
-  extraDiurnasDF: 2.15,
-  extraNocturnasDF: 2.65,
+// Porcentajes de recargo colombianos por defecto sobre la hora ordinaria. El usuario
+// puede ajustarlos en la pantalla de Ajustes (ej. cuando cambie la ley) sin tocar código.
+// Vigentes desde el 1 de julio de 2026 (Ley 2466 de 2025, art. 14, que modifica el
+// art. 179 CST): el recargo dominical/festivo sube a 100% desde julio de 2027.
+const DEFAULT_PORCENTAJES_RECARGO = {
+  nocturno: 35,
+  dominicalFestivo: 90,
+  extraDiurna: 25,
+  extraNocturna: 75,
+};
+
+// Redondea un porcentaje para mostrarlo sin decimales innecesarios (ej: 35, 32.5)
+const formatearPorcentaje = (valor) => {
+  const redondeado = Math.round(valor * 10) / 10;
+  return Number.isInteger(redondeado) ? redondeado : redondeado.toFixed(1);
 };
 
 const formatearDinero = (numero) => {
@@ -174,6 +176,12 @@ export default function App() {
   const [topeExtraSemanal, setTopeExtraSemanal] = useState('12');
   const [configCargada, setConfigCargada] = useState(false);
 
+  // --- Porcentajes de recargo (editables en Ajustes, ver DEFAULT_PORCENTAJES_RECARGO) ---
+  const [pctNocturno, setPctNocturno] = useState(String(DEFAULT_PORCENTAJES_RECARGO.nocturno));
+  const [pctDominicalFestivo, setPctDominicalFestivo] = useState(String(DEFAULT_PORCENTAJES_RECARGO.dominicalFestivo));
+  const [pctExtraDiurna, setPctExtraDiurna] = useState(String(DEFAULT_PORCENTAJES_RECARGO.extraDiurna));
+  const [pctExtraNocturna, setPctExtraNocturna] = useState(String(DEFAULT_PORCENTAJES_RECARGO.extraNocturna));
+
   useEffect(() => {
     cargarTurnosDesdememoria();
     cargarConfiguracion();
@@ -189,6 +197,10 @@ export default function App() {
         if (Array.isArray(config.festivosPersonalizados)) setFestivosPersonalizados(config.festivosPersonalizados);
         if (config.topeExtraSemanal) setTopeExtraSemanal(config.topeExtraSemanal);
         if (config.valorHoraOrdinaria) setValorHoraOrdinaria(config.valorHoraOrdinaria);
+        if (config.pctNocturno) setPctNocturno(config.pctNocturno);
+        if (config.pctDominicalFestivo) setPctDominicalFestivo(config.pctDominicalFestivo);
+        if (config.pctExtraDiurna) setPctExtraDiurna(config.pctExtraDiurna);
+        if (config.pctExtraNocturna) setPctExtraNocturna(config.pctExtraNocturna);
       }
     } catch (error) {
       console.error("Error al cargar configuración:", error);
@@ -210,8 +222,12 @@ export default function App() {
   // no sobrescribir lo guardado con los valores por defecto del estado inicial.
   useEffect(() => {
     if (!configCargada) return;
-    guardarConfiguracion({ horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal, valorHoraOrdinaria });
-  }, [horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal, valorHoraOrdinaria, configCargada]);
+    guardarConfiguracion({
+      horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal, valorHoraOrdinaria,
+      pctNocturno, pctDominicalFestivo, pctExtraDiurna, pctExtraNocturna,
+    });
+  }, [horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal, valorHoraOrdinaria, configCargada,
+      pctNocturno, pctDominicalFestivo, pctExtraDiurna, pctExtraNocturna]);
 
   const cargarTurnosDesdememoria = async () => {
     try {
@@ -440,6 +456,31 @@ export default function App() {
     };
   }, [rangoInicio, rangoFin, turnosGuardados]);
 
+  // --- Multiplicadores derivados de los porcentajes configurados en Ajustes ---
+  const multiplicadoresRecargo = useMemo(() => {
+    const nocturno = parsearDecimal(pctNocturno);
+    const df = parsearDecimal(pctDominicalFestivo);
+    const extraD = parsearDecimal(pctExtraDiurna);
+    const extraN = parsearDecimal(pctExtraNocturna);
+    const n = isNaN(nocturno) ? 0 : nocturno;
+    const d = isNaN(df) ? 0 : df;
+    const ed = isNaN(extraD) ? 0 : extraD;
+    const en = isNaN(extraN) ? 0 : extraN;
+    return {
+      diurnas: 1,
+      nocturnas: 1 + n / 100,
+      diurnasDF: 1 + d / 100,
+      nocturnasDF: 1 + n / 100 + d / 100,
+      extraDiurnas: 1 + ed / 100,
+      extraNocturnas: 1 + en / 100,
+      extraDiurnasDF: 1 + ed / 100 + d / 100,
+      extraNocturnasDF: 1 + en / 100 + d / 100,
+    };
+  }, [pctNocturno, pctDominicalFestivo, pctExtraDiurna, pctExtraNocturna]);
+
+  // Texto "+35%" a partir del multiplicador de una categoría (usa los valores de Ajustes)
+  const pctTexto = (categoria) => `+${formatearPorcentaje((multiplicadoresRecargo[categoria] - 1) * 100)}%`;
+
   // --- RESUMEN DE VALOR EN DINERO DE LOS RECARGOS (filtro y rango propios) ---
   const resumenValorRecargos = useMemo(() => {
     const valorHora = parsearDecimal(valorHoraOrdinaria);
@@ -459,13 +500,13 @@ export default function App() {
     const dinero = {};
     let total = 0;
     Object.keys(horas).forEach(categoria => {
-      const valorCategoria = valorHoraValido ? horas[categoria] * valorHora * MULTIPLICADORES_RECARGO[categoria] : 0;
+      const valorCategoria = valorHoraValido ? horas[categoria] * valorHora * multiplicadoresRecargo[categoria] : 0;
       dinero[categoria] = valorCategoria;
       total += valorCategoria;
     });
 
     return { valorHoraValido, horas, dinero, total };
-  }, [turnosGuardados, rangoInicioValor, rangoFinValor, valorHoraOrdinaria]);
+  }, [turnosGuardados, rangoInicioValor, rangoFinValor, valorHoraOrdinaria, multiplicadoresRecargo]);
 
   // --- HORAS EXTRA DE LA SEMANA (lunes a domingo) que contiene la fecha seleccionada ---
   const resumenSemanaExtra = useMemo(() => {
@@ -669,17 +710,17 @@ export default function App() {
     texto += `————————————————\n\n`;
 
     texto += `☀️ Diurna (0%): ${resumenValorRecargos.horas.diurnas.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.diurnas)}\n`;
-    texto += `🌙 Nocturna (+35%): ${resumenValorRecargos.horas.nocturnas.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.nocturnas)}\n`;
-    texto += `🔥 Extra Diurna (+25%): ${resumenValorRecargos.horas.extraDiurnas.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.extraDiurnas)}\n`;
-    texto += `🌌 Extra Nocturna (+75%): ${resumenValorRecargos.horas.extraNocturnas.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.extraNocturnas)}\n`;
+    texto += `🌙 Nocturna (${pctTexto('nocturnas')}): ${resumenValorRecargos.horas.nocturnas.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.nocturnas)}\n`;
+    texto += `🔥 Extra Diurna (${pctTexto('extraDiurnas')}): ${resumenValorRecargos.horas.extraDiurnas.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.extraDiurnas)}\n`;
+    texto += `🌌 Extra Nocturna (${pctTexto('extraNocturnas')}): ${resumenValorRecargos.horas.extraNocturnas.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.extraNocturnas)}\n`;
 
     if (resumenValorRecargos.horas.diurnasDF > 0 || resumenValorRecargos.horas.nocturnasDF > 0 ||
         resumenValorRecargos.horas.extraDiurnasDF > 0 || resumenValorRecargos.horas.extraNocturnasDF > 0) {
       texto += `\n🎉 Dominical/Festivo:\n`;
-      if (resumenValorRecargos.horas.diurnasDF > 0) texto += `Diurna DF (+90%): ${resumenValorRecargos.horas.diurnasDF.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.diurnasDF)}\n`;
-      if (resumenValorRecargos.horas.nocturnasDF > 0) texto += `Nocturna DF (+125%): ${resumenValorRecargos.horas.nocturnasDF.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.nocturnasDF)}\n`;
-      if (resumenValorRecargos.horas.extraDiurnasDF > 0) texto += `Extra Diurna DF (+115%): ${resumenValorRecargos.horas.extraDiurnasDF.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.extraDiurnasDF)}\n`;
-      if (resumenValorRecargos.horas.extraNocturnasDF > 0) texto += `Extra Nocturna DF (+165%): ${resumenValorRecargos.horas.extraNocturnasDF.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.extraNocturnasDF)}\n`;
+      if (resumenValorRecargos.horas.diurnasDF > 0) texto += `Diurna DF (${pctTexto('diurnasDF')}): ${resumenValorRecargos.horas.diurnasDF.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.diurnasDF)}\n`;
+      if (resumenValorRecargos.horas.nocturnasDF > 0) texto += `Nocturna DF (${pctTexto('nocturnasDF')}): ${resumenValorRecargos.horas.nocturnasDF.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.nocturnasDF)}\n`;
+      if (resumenValorRecargos.horas.extraDiurnasDF > 0) texto += `Extra Diurna DF (${pctTexto('extraDiurnasDF')}): ${resumenValorRecargos.horas.extraDiurnasDF.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.extraDiurnasDF)}\n`;
+      if (resumenValorRecargos.horas.extraNocturnasDF > 0) texto += `Extra Nocturna DF (${pctTexto('extraNocturnasDF')}): ${resumenValorRecargos.horas.extraNocturnasDF.toFixed(2)}h → ${formatearDinero(resumenValorRecargos.dinero.extraNocturnasDF)}\n`;
     }
 
     texto += `\n————————————————\n`;
@@ -923,6 +964,75 @@ export default function App() {
 
                 <View style={styles.divider} />
 
+                <Text style={styles.configSectionTitle}>Porcentajes de Recargo</Text>
+                <Text style={styles.configSectionHint}>
+                  Ajusta estos porcentajes cuando cambie la ley, sin necesidad de actualizar la app.
+                  Los recargos dominical/festivo y nocturno se suman cuando coinciden.
+                </Text>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>Recargo Nocturno (%)</Text>
+                  <TextInput
+                    style={[styles.timeSelector, styles.inputText]}
+                    value={pctNocturno}
+                    onChangeText={setPctNocturno}
+                    keyboardType="numeric"
+                    placeholder="Ej: 35"
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>Recargo Dominical/Festivo (%)</Text>
+                  <TextInput
+                    style={[styles.timeSelector, styles.inputText]}
+                    value={pctDominicalFestivo}
+                    onChangeText={setPctDominicalFestivo}
+                    keyboardType="numeric"
+                    placeholder="Ej: 90"
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>Hora Extra Diurna (%)</Text>
+                  <TextInput
+                    style={[styles.timeSelector, styles.inputText]}
+                    value={pctExtraDiurna}
+                    onChangeText={setPctExtraDiurna}
+                    keyboardType="numeric"
+                    placeholder="Ej: 25"
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>Hora Extra Nocturna (%)</Text>
+                  <TextInput
+                    style={[styles.timeSelector, styles.inputText]}
+                    value={pctExtraNocturna}
+                    onChangeText={setPctExtraNocturna}
+                    keyboardType="numeric"
+                    placeholder="Ej: 75"
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                <TouchableOpacity
+                  style={styles.addFestivoButton}
+                  onPress={() => {
+                    setPctNocturno(String(DEFAULT_PORCENTAJES_RECARGO.nocturno));
+                    setPctDominicalFestivo(String(DEFAULT_PORCENTAJES_RECARGO.dominicalFestivo));
+                    setPctExtraDiurna(String(DEFAULT_PORCENTAJES_RECARGO.extraDiurna));
+                    setPctExtraNocturna(String(DEFAULT_PORCENTAJES_RECARGO.extraNocturna));
+                  }}
+                >
+                  <Ionicons name="refresh-outline" size={20} color="#007AFF" />
+                  <Text style={styles.addFestivoButtonText}>Restablecer valores por defecto</Text>
+                </TouchableOpacity>
+
+                <View style={styles.divider} />
+
                 <Text style={styles.configSectionTitle}>Tope de Horas Extra Semanal</Text>
                 <Text style={styles.configSectionHint}>
                   Límite semanal de horas extra usado para la barra de progreso (por defecto 12 hrs).
@@ -1020,23 +1130,23 @@ export default function App() {
 
             <Text style={styles.sectionLabel}>Horas Ordinarias</Text>
             <Text style={styles.resultText}>☀️ Diurna (0%): {resultado.diurnas} hrs</Text>
-            <Text style={styles.resultText}>🌙 Nocturna (+35%): {resultado.nocturnas} hrs</Text>
+            <Text style={styles.resultText}>🌙 Nocturna ({pctTexto('nocturnas')}): {resultado.nocturnas} hrs</Text>
             {parseFloat(resultado.diurnasDF) > 0 && (
-              <Text style={styles.resultText}>🎉 Diurna Dominical/Festivo (+90%): {resultado.diurnasDF} hrs</Text>
+              <Text style={styles.resultText}>🎉 Diurna Dominical/Festivo ({pctTexto('diurnasDF')}): {resultado.diurnasDF} hrs</Text>
             )}
             {parseFloat(resultado.nocturnasDF) > 0 && (
-              <Text style={styles.resultText}>🌒 Nocturna Dominical/Festivo (+125%): {resultado.nocturnasDF} hrs</Text>
+              <Text style={styles.resultText}>🌒 Nocturna Dominical/Festivo ({pctTexto('nocturnasDF')}): {resultado.nocturnasDF} hrs</Text>
             )}
 
             <View style={styles.divider} />
             <Text style={styles.sectionLabel}>Horas Extra</Text>
-            <Text style={styles.resultText}>🔥 Extra Diurna (+25%): {resultado.extraDiurnas} hrs</Text>
-            <Text style={styles.resultText}>🌌 Extra Nocturna (+75%): {resultado.extraNocturnas} hrs</Text>
+            <Text style={styles.resultText}>🔥 Extra Diurna ({pctTexto('extraDiurnas')}): {resultado.extraDiurnas} hrs</Text>
+            <Text style={styles.resultText}>🌌 Extra Nocturna ({pctTexto('extraNocturnas')}): {resultado.extraNocturnas} hrs</Text>
             {parseFloat(resultado.extraDiurnasDF) > 0 && (
-              <Text style={styles.resultText}>🎆 Extra Diurna Dominical/Festivo (+115%): {resultado.extraDiurnasDF} hrs</Text>
+              <Text style={styles.resultText}>🎆 Extra Diurna Dominical/Festivo ({pctTexto('extraDiurnasDF')}): {resultado.extraDiurnasDF} hrs</Text>
             )}
             {parseFloat(resultado.extraNocturnasDF) > 0 && (
-              <Text style={styles.resultText}>🌠 Extra Nocturna Dominical/Festivo (+165%): {resultado.extraNocturnasDF} hrs</Text>
+              <Text style={styles.resultText}>🌠 Extra Nocturna Dominical/Festivo ({pctTexto('extraNocturnasDF')}): {resultado.extraNocturnasDF} hrs</Text>
             )}
           </View>
         )}
@@ -1105,15 +1215,15 @@ export default function App() {
               <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.diurnas)}</Text>
             </View>
             <View style={styles.dineroRow}>
-              <Text style={styles.dineroCategoria}>🌙 Nocturna (+35%) · {resumenValorRecargos.horas.nocturnas.toFixed(2)}h</Text>
+              <Text style={styles.dineroCategoria}>🌙 Nocturna ({pctTexto('nocturnas')}) · {resumenValorRecargos.horas.nocturnas.toFixed(2)}h</Text>
               <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.nocturnas)}</Text>
             </View>
             <View style={styles.dineroRow}>
-              <Text style={styles.dineroCategoria}>🔥 Extra Diurna (+25%) · {resumenValorRecargos.horas.extraDiurnas.toFixed(2)}h</Text>
+              <Text style={styles.dineroCategoria}>🔥 Extra Diurna ({pctTexto('extraDiurnas')}) · {resumenValorRecargos.horas.extraDiurnas.toFixed(2)}h</Text>
               <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.extraDiurnas)}</Text>
             </View>
             <View style={styles.dineroRow}>
-              <Text style={styles.dineroCategoria}>🌌 Extra Nocturna (+75%) · {resumenValorRecargos.horas.extraNocturnas.toFixed(2)}h</Text>
+              <Text style={styles.dineroCategoria}>🌌 Extra Nocturna ({pctTexto('extraNocturnas')}) · {resumenValorRecargos.horas.extraNocturnas.toFixed(2)}h</Text>
               <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.extraNocturnas)}</Text>
             </View>
 
@@ -1124,25 +1234,25 @@ export default function App() {
                 <Text style={styles.monthSubtitle}>🎉 Dominical/Festivo</Text>
                 {resumenValorRecargos.horas.diurnasDF > 0 && (
                   <View style={styles.dineroRow}>
-                    <Text style={styles.dineroCategoria}>Diurna DF (+90%) · {resumenValorRecargos.horas.diurnasDF.toFixed(2)}h</Text>
+                    <Text style={styles.dineroCategoria}>Diurna DF ({pctTexto('diurnasDF')}) · {resumenValorRecargos.horas.diurnasDF.toFixed(2)}h</Text>
                     <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.diurnasDF)}</Text>
                   </View>
                 )}
                 {resumenValorRecargos.horas.nocturnasDF > 0 && (
                   <View style={styles.dineroRow}>
-                    <Text style={styles.dineroCategoria}>Nocturna DF (+125%) · {resumenValorRecargos.horas.nocturnasDF.toFixed(2)}h</Text>
+                    <Text style={styles.dineroCategoria}>Nocturna DF ({pctTexto('nocturnasDF')}) · {resumenValorRecargos.horas.nocturnasDF.toFixed(2)}h</Text>
                     <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.nocturnasDF)}</Text>
                   </View>
                 )}
                 {resumenValorRecargos.horas.extraDiurnasDF > 0 && (
                   <View style={styles.dineroRow}>
-                    <Text style={styles.dineroCategoria}>Extra Diurna DF (+115%) · {resumenValorRecargos.horas.extraDiurnasDF.toFixed(2)}h</Text>
+                    <Text style={styles.dineroCategoria}>Extra Diurna DF ({pctTexto('extraDiurnasDF')}) · {resumenValorRecargos.horas.extraDiurnasDF.toFixed(2)}h</Text>
                     <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.extraDiurnasDF)}</Text>
                   </View>
                 )}
                 {resumenValorRecargos.horas.extraNocturnasDF > 0 && (
                   <View style={styles.dineroRow}>
-                    <Text style={styles.dineroCategoria}>Extra Nocturna DF (+165%) · {resumenValorRecargos.horas.extraNocturnasDF.toFixed(2)}h</Text>
+                    <Text style={styles.dineroCategoria}>Extra Nocturna DF ({pctTexto('extraNocturnasDF')}) · {resumenValorRecargos.horas.extraNocturnasDF.toFixed(2)}h</Text>
                     <Text style={styles.dineroValor}>{formatearDinero(resumenValorRecargos.dinero.extraNocturnasDF)}</Text>
                   </View>
                 )}
