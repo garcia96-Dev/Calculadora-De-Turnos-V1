@@ -618,9 +618,21 @@ export default function App() {
 
     const totalDias = dias.length;
     const totalTomados = dias.filter(d => d.tomado).length;
-    const esHabitual = totalDias >= 3; // Art. 179 CST: trabajo habitual en descanso obligatorio
 
-    return { dias, totalDias, totalTomados, esHabitual, valorHoraValido };
+    // El Art. 179 CST exige que el trabajo habitual se cuente por MES CALENDARIO,
+    // no por el rango de fechas elegido (que puede cruzar meses o ser parcial).
+    const diasPorMes = {};
+    dias.forEach(d => {
+      const mes = dayjs(d.fecha).format('YYYY-MM');
+      diasPorMes[mes] = (diasPorMes[mes] || 0) + 1;
+    });
+    const mesesHabituales = Object.keys(diasPorMes)
+      .filter(mes => diasPorMes[mes] >= 3)
+      .sort()
+      .map(mes => dayjs(mes, 'YYYY-MM').format('MMMM YYYY'));
+    const esHabitual = mesesHabituales.length > 0;
+
+    return { dias, totalDias, totalTomados, esHabitual, mesesHabituales, valorHoraValido };
   }, [turnosGuardados, rangoInicioComp, rangoFinComp, valorHoraOrdinaria, multiplicadoresRecargo, compensatoriosTomados]);
 
   // --- HORAS EXTRA DE LA SEMANA (lunes a domingo) que contiene la fecha seleccionada ---
@@ -852,8 +864,21 @@ export default function App() {
         texto += `Extra Diurna DF (${pctTexto('extraDiurnasDF')}): ${resumenRango.extraDiurnasDF}h\n`;
         texto += `Extra Nocturna DF (${pctTexto('extraNocturnasDF')}): ${resumenRango.extraNocturnasDF}h\n`;
       }
-      if (resumenRango.diasDominicalFestivo >= 3) {
-        texto += `⚠️ Trabajo habitual en descanso obligatorio (Art. 179 CST): además del recargo, corresponde un día de descanso compensatorio remunerado.\n`;
+      // El Art. 179 CST exige contar el trabajo habitual por MES CALENDARIO, no por el
+      // rango de fechas elegido (que puede cruzar meses o cubrir solo una parte de uno).
+      const diasDFPorMes = {};
+      fechasDelRango.forEach(fecha => {
+        if (turnosGuardados[fecha].esDominicalOFestivo) {
+          const mes = dayjs(fecha).format('YYYY-MM');
+          diasDFPorMes[mes] = (diasDFPorMes[mes] || 0) + 1;
+        }
+      });
+      const mesesHabituales = Object.keys(diasDFPorMes)
+        .filter(mes => diasDFPorMes[mes] >= 3)
+        .sort()
+        .map(mes => dayjs(mes, 'YYYY-MM').format('MMMM YYYY'));
+      if (mesesHabituales.length > 0) {
+        texto += `⚠️ En ${mesesHabituales.join(', ')} trabajaste 3+ domingos/festivos (Art. 179 CST): además del recargo, corresponde un día de descanso compensatorio remunerado.\n`;
       }
     }
 
@@ -1495,7 +1520,7 @@ export default function App() {
             </Text>
             {diasCompensatorios.esHabitual && (
               <Text style={styles.progresoAlerta}>
-                ⚠️ 3 o más en el mismo mes: según el Art. 179 CST el trabajo es habitual y da derecho, además del recargo, a un día de descanso compensatorio remunerado.
+                ⚠️ En {diasCompensatorios.mesesHabituales.join(', ')} trabajaste 3 o más domingos/festivos: según el Art. 179 CST el trabajo es habitual y da derecho, además del recargo, a un día de descanso compensatorio remunerado.
               </Text>
             )}
           </View>
