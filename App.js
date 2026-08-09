@@ -23,6 +23,7 @@ LocaleConfig.defaultLocale = 'es';
 
 const STORAGE_KEY = '@mis_turnos';
 const CONFIG_KEY = '@config_app';
+const COMPENSATORIOS_KEY = '@dias_compensatorios';
 
 // --- FESTIVOS DE COLOMBIA ---
 
@@ -165,6 +166,13 @@ export default function App() {
   const [mostrarSelectorFinValor, setMostrarSelectorFinValor] = useState(false);
   const [valorHoraOrdinaria, setValorHoraOrdinaria] = useState('');
 
+  // --- Rango de fechas para Días Compensatorios (filtro independiente) ---
+  const [rangoInicioComp, setRangoInicioComp] = useState(dayjs().startOf('month').format('YYYY-MM-DD'));
+  const [rangoFinComp, setRangoFinComp] = useState(dayjs().endOf('month').format('YYYY-MM-DD'));
+  const [mostrarSelectorInicioComp, setMostrarSelectorInicioComp] = useState(false);
+  const [mostrarSelectorFinComp, setMostrarSelectorFinComp] = useState(false);
+  const [compensatoriosTomados, setCompensatoriosTomados] = useState({});
+
   // --- Configuración (horario nocturno editable y festivos personalizados) ---
   const [mostrarConfiguracion, setMostrarConfiguracion] = useState(false);
   const [horaInicioNocturno, setHoraInicioNocturno] = useState('19:00');
@@ -181,11 +189,55 @@ export default function App() {
   const [pctDominicalFestivo, setPctDominicalFestivo] = useState(String(DEFAULT_PORCENTAJES_RECARGO.dominicalFestivo));
   const [pctExtraDiurna, setPctExtraDiurna] = useState(String(DEFAULT_PORCENTAJES_RECARGO.extraDiurna));
   const [pctExtraNocturna, setPctExtraNocturna] = useState(String(DEFAULT_PORCENTAJES_RECARGO.extraNocturna));
+  const [compensatoriosCargados, setCompensatoriosCargados] = useState(false);
 
   useEffect(() => {
     cargarTurnosDesdememoria();
     cargarConfiguracion();
+    cargarCompensatorios();
   }, []);
+
+  const cargarCompensatorios = async () => {
+    try {
+      const compString = await AsyncStorage.getItem(COMPENSATORIOS_KEY);
+      if (compString !== null) setCompensatoriosTomados(JSON.parse(compString));
+    } catch (error) {
+      console.error("Error al cargar días compensatorios:", error);
+    } finally {
+      setCompensatoriosCargados(true);
+    }
+  };
+
+  // Autoguarda cada vez que se marca/desmarca un día compensatorio como tomado
+  useEffect(() => {
+    if (!compensatoriosCargados) return;
+    AsyncStorage.setItem(COMPENSATORIOS_KEY, JSON.stringify(compensatoriosTomados)).catch(() => {
+      Alert.alert("Error", "No se pudo guardar el estado de los días compensatorios.");
+    });
+  }, [compensatoriosTomados, compensatoriosCargados]);
+
+  const alternarCompensatorioTomado = (fecha, tomadoActualmente) => {
+    const fechaTexto = dayjs(fecha).format('dddd D [de] MMMM YYYY');
+    if (tomadoActualmente) {
+      Alert.alert(
+        "Desmarcar día compensatorio",
+        `¿Quieres desmarcar el ${fechaTexto} como compensado?`,
+        [
+          { text: "Cancelar", style: "cancel" },
+          { text: "Desmarcar", style: "destructive", onPress: () => setCompensatoriosTomados(prev => ({ ...prev, [fecha]: false })) },
+        ]
+      );
+    } else {
+      Alert.alert(
+        "Marcar día compensatorio",
+        `¿Confirmas que ya tomaste el descanso compensatorio por el ${fechaTexto}?`,
+        [
+          { text: "Cancelar", style: "cancel" },
+          { text: "Confirmar", onPress: () => setCompensatoriosTomados(prev => ({ ...prev, [fecha]: true })) },
+        ]
+      );
+    }
+  };
 
   const cargarConfiguracion = async () => {
     try {
@@ -241,6 +293,7 @@ export default function App() {
           setResultado(datosParseados[hoy]);
           setHoraEntrada(datosParseados[hoy].horaEntradaGuardada);
           setHoraSalida(datosParseados[hoy].horaSalidaGuardada);
+          setJornadaLaboral(datosParseados[hoy].jornadaBase || '8');
         }
       }
     } catch (error) {
@@ -311,6 +364,24 @@ export default function App() {
       const nuevoFin = dayjs(fecha).format('YYYY-MM-DD');
       setRangoFinValor(nuevoFin);
       if (dayjs(nuevoFin).isBefore(dayjs(rangoInicioValor))) setRangoInicioValor(nuevoFin);
+    }
+  };
+
+  const alCambiarRangoInicioComp = (event, fecha) => {
+    setMostrarSelectorInicioComp(false);
+    if (fecha) {
+      const nuevoInicio = dayjs(fecha).format('YYYY-MM-DD');
+      setRangoInicioComp(nuevoInicio);
+      if (dayjs(nuevoInicio).isAfter(dayjs(rangoFinComp))) setRangoFinComp(nuevoInicio);
+    }
+  };
+
+  const alCambiarRangoFinComp = (event, fecha) => {
+    setMostrarSelectorFinComp(false);
+    if (fecha) {
+      const nuevoFin = dayjs(fecha).format('YYYY-MM-DD');
+      setRangoFinComp(nuevoFin);
+      if (dayjs(nuevoFin).isBefore(dayjs(rangoInicioComp))) setRangoInicioComp(nuevoFin);
     }
   };
 
@@ -386,6 +457,17 @@ export default function App() {
     const mesAnterior = dayjs().subtract(1, 'month');
     setRangoInicioValor(mesAnterior.startOf('month').format('YYYY-MM-DD'));
     setRangoFinValor(mesAnterior.endOf('month').format('YYYY-MM-DD'));
+  };
+
+  const aplicarPresetMesActualComp = () => {
+    setRangoInicioComp(dayjs().startOf('month').format('YYYY-MM-DD'));
+    setRangoFinComp(dayjs().endOf('month').format('YYYY-MM-DD'));
+  };
+
+  const aplicarPresetMesAnteriorComp = () => {
+    const mesAnterior = dayjs().subtract(1, 'month');
+    setRangoInicioComp(mesAnterior.startOf('month').format('YYYY-MM-DD'));
+    setRangoFinComp(mesAnterior.endOf('month').format('YYYY-MM-DD'));
   };
 
   const marcadoresFinales = useMemo(() => {
@@ -508,6 +590,39 @@ export default function App() {
     return { valorHoraValido, horas, dinero, total };
   }, [turnosGuardados, rangoInicioValor, rangoFinValor, valorHoraOrdinaria, multiplicadoresRecargo]);
 
+  // --- DÍAS COMPENSATORIOS: domingos/festivos trabajados dentro del rango seleccionado ---
+  const diasCompensatorios = useMemo(() => {
+    const valorHora = parsearDecimal(valorHoraOrdinaria);
+    const valorHoraValido = !isNaN(valorHora) && valorHora > 0;
+
+    const dias = Object.keys(turnosGuardados)
+      .filter(fecha => fecha >= rangoInicioComp && fecha <= rangoFinComp)
+      .filter(fecha => turnosGuardados[fecha].esDominicalOFestivo)
+      .sort()
+      .map(fecha => {
+        const turno = turnosGuardados[fecha];
+        const horasDF = ['diurnasDF', 'nocturnasDF', 'extraDiurnasDF', 'extraNocturnasDF']
+          .reduce((suma, cat) => suma + parseFloat(turno[cat] || 0), 0);
+        const dineroDF = valorHoraValido
+          ? ['diurnasDF', 'nocturnasDF', 'extraDiurnasDF', 'extraNocturnasDF']
+              .reduce((suma, cat) => suma + parseFloat(turno[cat] || 0) * valorHora * multiplicadoresRecargo[cat], 0)
+          : 0;
+        return {
+          fecha,
+          esDomingo: dayjs(fecha).day() === 0,
+          horasDF,
+          dineroDF,
+          tomado: !!compensatoriosTomados[fecha],
+        };
+      });
+
+    const totalDias = dias.length;
+    const totalTomados = dias.filter(d => d.tomado).length;
+    const esHabitual = totalDias >= 3; // Art. 179 CST: trabajo habitual en descanso obligatorio
+
+    return { dias, totalDias, totalTomados, esHabitual, valorHoraValido };
+  }, [turnosGuardados, rangoInicioComp, rangoFinComp, valorHoraOrdinaria, multiplicadoresRecargo, compensatoriosTomados]);
+
   // --- HORAS EXTRA DE LA SEMANA (lunes a domingo) que contiene la fecha seleccionada ---
   const resumenSemanaExtra = useMemo(() => {
     const inicioSemana = dayjs(fechaSeleccionada).startOf('week').format('YYYY-MM-DD');
@@ -546,10 +661,13 @@ export default function App() {
       setResultado(turnoDeEseDia);
       setHoraEntrada(turnoDeEseDia.horaEntradaGuardada);
       setHoraSalida(turnoDeEseDia.horaSalidaGuardada);
+      // Turnos guardados antes de este cambio no tienen jornadaBase: se usa '8' por defecto
+      setJornadaLaboral(turnoDeEseDia.jornadaBase || '8');
     } else {
       setResultado(null);
       setHoraEntrada('');
       setHoraSalida('');
+      setJornadaLaboral('8');
     }
   };
 
@@ -624,6 +742,7 @@ export default function App() {
       extraNocturnasDF: (minExtraNocturnaDF / 60).toFixed(2),
       horaEntradaGuardada: horaEntrada,
       horaSalidaGuardada: horaSalida,
+      jornadaBase: jornadaLaboral,
       tieneExtra: huboExtras,
       esDominicalOFestivo: huboDominicalFestivo
     };
@@ -663,33 +782,83 @@ export default function App() {
       return;
     }
 
+    // Etiquetas y orden de las 8 categorías estándar, para el desglose de cada día
+    const categorias = [
+      { key: 'diurnas', label: 'Diurna' },
+      { key: 'nocturnas', label: 'Nocturna' },
+      { key: 'diurnasDF', label: 'Diurna DF' },
+      { key: 'nocturnasDF', label: 'Nocturna DF' },
+      { key: 'extraDiurnas', label: 'Extra Diurna' },
+      { key: 'extraNocturnas', label: 'Extra Nocturna' },
+      { key: 'extraDiurnasDF', label: 'Extra Diurna DF' },
+      { key: 'extraNocturnasDF', label: 'Extra Nocturna DF' },
+    ];
+
     let texto = `📊 Resumen de Turnos\n`;
     texto += `📅 ${dayjs(rangoInicio).format('DD/MM/YYYY')} - ${dayjs(rangoFin).format('DD/MM/YYYY')}\n`;
     texto += `————————————————\n\n`;
 
+    let diasConExtra = 0;
+    let diasConNocturna = 0;
+
     fechasDelRango.forEach(fecha => {
       const turno = turnosGuardados[fecha];
       const etiquetaFestivo = turno.esDominicalOFestivo ? ' 🎉' : '';
-      texto += `${dayjs(fecha).format('dddd DD/MM')}${etiquetaFestivo}: ${turno.total} hrs\n`;
+      const horario = (turno.horaEntradaGuardada && turno.horaSalidaGuardada)
+        ? ` (${turno.horaEntradaGuardada} - ${turno.horaSalidaGuardada})`
+        : '';
+
+      texto += `🗓️ ${dayjs(fecha).format('dddd DD/MM')}${etiquetaFestivo}${horario} → ${turno.total} hrs\n`;
+
+      // Desglose por categoría, solo las que tienen horas registradas ese día
+      const detalles = categorias
+        .filter(c => parseFloat(turno[c.key] || 0) > 0)
+        .map(c => `${c.label} ${parseFloat(turno[c.key]).toFixed(2)}h`);
+      if (detalles.length > 0) texto += `   ${detalles.join(' · ')}\n`;
+
+      if (turno.tieneExtra) diasConExtra++;
+      if (parseFloat(turno.nocturnas || 0) > 0 || parseFloat(turno.nocturnasDF || 0) > 0) diasConNocturna++;
     });
 
+    const totalHorasExtra = (
+      parseFloat(resumenRango.extraDiurnas) + parseFloat(resumenRango.extraNocturnas) +
+      parseFloat(resumenRango.extraDiurnasDF) + parseFloat(resumenRango.extraNocturnasDF)
+    ).toFixed(2);
+    const promedioPorDia = resumenRango.dias > 0 ? (parseFloat(resumenRango.total) / resumenRango.dias).toFixed(2) : '0.00';
+
     texto += `\n————————————————\n`;
-    texto += `📌 Días registrados: ${resumenRango.dias}\n`;
-    texto += `⏱ Total Acumulado: ${resumenRango.total} hrs\n\n`;
-    texto += `🥑 Ord. Diurnas: ${resumenRango.diurnas}h\n`;
-    texto += `🌙 Ord. Nocturnas: ${resumenRango.nocturnas}h\n`;
-    texto += `🌶️ Ext. Diurnas: ${resumenRango.extraDiurnas}h\n`;
-    texto += `🌌 Ext. Nocturnas: ${resumenRango.extraNocturnas}h\n`;
+    texto += `📌 ESTADÍSTICAS DEL RANGO\n`;
+    texto += `Días registrados: ${resumenRango.dias}\n`;
+    texto += `Promedio de horas/día: ${promedioPorDia} hrs\n`;
+    texto += `Días con turno nocturno: ${diasConNocturna}\n`;
+    texto += `Días con horas extra: ${diasConExtra}\n`;
+    texto += `⏱ Total Acumulado: ${resumenRango.total} hrs\n`;
+
+    texto += `\n🔹 HORAS ORDINARIAS\n`;
+    texto += `🥑 Diurnas: ${resumenRango.diurnas}h\n`;
+    texto += `🌙 Nocturnas (${pctTexto('nocturnas')}): ${resumenRango.nocturnas}h\n`;
+
+    texto += `\n🔹 HORAS EXTRA\n`;
+    texto += `🌶️ Extra Diurnas (${pctTexto('extraDiurnas')}): ${resumenRango.extraDiurnas}h\n`;
+    texto += `🌌 Extra Nocturnas (${pctTexto('extraNocturnas')}): ${resumenRango.extraNocturnas}h\n`;
+    texto += `Total horas extra: ${totalHorasExtra}h\n`;
 
     if (resumenRango.diasDominicalFestivo > 0) {
-      texto += `\n🎉 Domingos/Festivos trabajados: ${resumenRango.diasDominicalFestivo}\n`;
-      texto += `Diurna DF: ${resumenRango.diurnasDF}h\n`;
-      texto += `Nocturna DF: ${resumenRango.nocturnasDF}h\n`;
+      texto += `\n🔹 DOMINICAL/FESTIVO\n`;
+      texto += `🎉 Días trabajados en domingo/festivo: ${resumenRango.diasDominicalFestivo}\n`;
+      texto += `Diurna DF (${pctTexto('diurnasDF')}): ${resumenRango.diurnasDF}h\n`;
+      texto += `Nocturna DF (${pctTexto('nocturnasDF')}): ${resumenRango.nocturnasDF}h\n`;
       if (parseFloat(resumenRango.extraDiurnasDF) > 0 || parseFloat(resumenRango.extraNocturnasDF) > 0) {
-        texto += `Extra Diurna DF: ${resumenRango.extraDiurnasDF}h\n`;
-        texto += `Extra Nocturna DF: ${resumenRango.extraNocturnasDF}h\n`;
+        texto += `Extra Diurna DF (${pctTexto('extraDiurnasDF')}): ${resumenRango.extraDiurnasDF}h\n`;
+        texto += `Extra Nocturna DF (${pctTexto('extraNocturnasDF')}): ${resumenRango.extraNocturnasDF}h\n`;
+      }
+      if (resumenRango.diasDominicalFestivo >= 3) {
+        texto += `⚠️ Trabajo habitual en descanso obligatorio (Art. 179 CST): además del recargo, corresponde un día de descanso compensatorio remunerado.\n`;
       }
     }
+
+    texto += `\n————————————————\n`;
+    texto += `Generado con la calculadora de turnos`;
 
     try {
       await Share.share({ message: texto });
@@ -747,6 +916,9 @@ export default function App() {
 
   const esMesActualValor = rangoInicioValor === inicioMesActual && rangoFinValor === finMesActual;
   const esMesAnteriorValor = rangoInicioValor === inicioMesAnterior && rangoFinValor === finMesAnterior;
+
+  const esMesActualComp = rangoInicioComp === inicioMesActual && rangoFinComp === finMesActual;
+  const esMesAnteriorComp = rangoInicioComp === inicioMesAnterior && rangoFinComp === finMesAnterior;
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -1273,6 +1445,93 @@ export default function App() {
           </View>
         </>
         )}
+
+        {pantallaActiva === 'compensatorios' && (
+        <>
+          <View style={styles.titleRow}>
+            <View style={styles.titleSpacer} />
+            <Text style={styles.title}>Días Compensatorios</Text>
+            <View style={styles.titleSpacer} />
+          </View>
+
+          <View style={styles.monthCard}>
+            <Text style={styles.monthTitle}>Filtro de Fechas</Text>
+
+            <View style={styles.presetRow}>
+              <TouchableOpacity style={[styles.presetButton, esMesActualComp && styles.presetButtonActivo]} onPress={aplicarPresetMesActualComp}>
+                <Text style={[styles.presetButtonText, esMesActualComp && styles.presetButtonTextActivo]}>Mes Actual</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.presetButton, esMesAnteriorComp && styles.presetButtonActivo]} onPress={aplicarPresetMesAnteriorComp}>
+                <Text style={[styles.presetButtonText, esMesAnteriorComp && styles.presetButtonTextActivo]}>Mes Anterior</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.rangeRow}>
+              <TouchableOpacity style={styles.rangeSelector} onPress={() => setMostrarSelectorInicioComp(true)}>
+                <Text style={styles.rangeLabel}>Desde</Text>
+                <Text style={styles.rangeValue}>{dayjs(rangoInicioComp).format('DD/MM/YYYY')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.rangeSelector} onPress={() => setMostrarSelectorFinComp(true)}>
+                <Text style={styles.rangeLabel}>Hasta</Text>
+                <Text style={styles.rangeValue}>{dayjs(rangoFinComp).format('DD/MM/YYYY')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {mostrarSelectorInicioComp && (
+              <DateTimePicker value={dayjs(rangoInicioComp).toDate()} mode="date" display="default" onChange={alCambiarRangoInicioComp} />
+            )}
+            {mostrarSelectorFinComp && (
+              <DateTimePicker value={dayjs(rangoFinComp).toDate()} mode="date" display="default" onChange={alCambiarRangoFinComp} />
+            )}
+          </View>
+
+          <View style={styles.progresoCard}>
+            <View style={styles.progresoHeader}>
+              <Text style={styles.progresoLabel}>Domingos/festivos trabajados en el rango</Text>
+              <Text style={styles.progresoValor}>{diasCompensatorios.totalDias}</Text>
+            </View>
+            <Text style={styles.configSectionHint}>
+              {diasCompensatorios.totalTomados} de {diasCompensatorios.totalDias} ya marcados como compensados.
+            </Text>
+            {diasCompensatorios.esHabitual && (
+              <Text style={styles.progresoAlerta}>
+                ⚠️ 3 o más en el mismo mes: según el Art. 179 CST el trabajo es habitual y da derecho, además del recargo, a un día de descanso compensatorio remunerado.
+              </Text>
+            )}
+          </View>
+
+          {diasCompensatorios.dias.length === 0 && (
+            <Text style={styles.configEmptyText}>No hay domingos ni festivos trabajados en este rango.</Text>
+          )}
+
+          {diasCompensatorios.dias.map((dia) => (
+            <View key={dia.fecha} style={styles.festivoRow}>
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+                onPress={() => alternarCompensatorioTomado(dia.fecha, dia.tomado)}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={dia.tomado ? 'checkbox' : 'square-outline'}
+                  size={22}
+                  color={dia.tomado ? '#28a745' : '#999'}
+                  style={{ marginRight: 10 }}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.festivoRowText}>
+                    {dia.esDomingo ? '📅 Domingo' : '🎉 Festivo'} · {dayjs(dia.fecha).format('dddd D [de] MMMM YYYY')}
+                  </Text>
+                  <Text style={styles.configSectionHint}>
+                    {dia.horasDF.toFixed(2)}h dominical/festivo
+                    {diasCompensatorios.valorHoraValido ? ` · ${formatearDinero(dia.dineroDF)}` : ''}
+                    {dia.tomado ? ' · Compensado' : ' · Pendiente'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </>
+        )}
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -1284,6 +1543,10 @@ export default function App() {
         <TouchableOpacity style={styles.tabItem} onPress={() => setPantallaActiva('recargos')} activeOpacity={0.7}>
           <Ionicons name="cash-outline" size={24} color={pantallaActiva === 'recargos' ? '#007AFF' : '#999'} />
           <Text style={[styles.tabLabel, pantallaActiva === 'recargos' && styles.tabLabelActivo]}>Recargos</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.tabItem} onPress={() => setPantallaActiva('compensatorios')} activeOpacity={0.7}>
+          <Ionicons name="calendar-outline" size={24} color={pantallaActiva === 'compensatorios' ? '#007AFF' : '#999'} />
+          <Text style={[styles.tabLabel, pantallaActiva === 'compensatorios' && styles.tabLabelActivo]}>Compensatorios</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
