@@ -141,7 +141,7 @@ export default function App() {
   const [fechaSeleccionada, setFechaSeleccionada] = useState(dayjs().format('YYYY-MM-DD'));
   const [horaEntrada, setHoraEntrada] = useState(''); 
   const [horaSalida, setHoraSalida] = useState('');   
-  const [jornadaLaboral, setJornadaLaboral] = useState('8');
+  const [jornadaLaboral, setJornadaLaboral] = useState('');
   const [resultado, setResultado] = useState(null);
   const [turnosGuardados, setTurnosGuardados] = useState({});
   const [mostrarModalCalendario, setMostrarModalCalendario] = useState(false);
@@ -679,7 +679,7 @@ export default function App() {
       setResultado(null);
       setHoraEntrada('');
       setHoraSalida('');
-      setJornadaLaboral('8');
+      setJornadaLaboral('');
     }
   };
 
@@ -1025,6 +1025,11 @@ export default function App() {
 
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Jornada Base (Horas)</Text>
+                <Text style={styles.configSectionHint}>
+                  Son las horas que trabajas antes de que empiecen a contar como extra
+                  (normalmente lo que dice tu contrato). Si no la sabes, revisa tu contrato
+                  o pregunta en RRHH — en Colombia suele ser entre 6 y 8 horas.
+                </Text>
                 <TextInput
                   style={[styles.timeSelector, styles.inputText]}
                   value={jornadaLaboral}
