@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, KeyboardAvoidingView, ScrollView, Alert, TextInput, StatusBar, Platform, Modal, Share } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, KeyboardAvoidingView, ScrollView, Alert, TextInput, StatusBar, Platform, Modal, Share, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import dayjs from 'dayjs';
@@ -141,7 +141,10 @@ export default function App() {
   const [fechaSeleccionada, setFechaSeleccionada] = useState(dayjs().format('YYYY-MM-DD'));
   const [horaEntrada, setHoraEntrada] = useState(''); 
   const [horaSalida, setHoraSalida] = useState('');   
-  const [jornadaLaboral, setJornadaLaboral] = useState('');
+  const [horaCorteExtra, setHoraCorteExtra] = useState('');
+  const [mostrarRelojCorteExtra, setMostrarRelojCorteExtra] = useState(false);
+  const [horaInicioAlmuerzo, setHoraInicioAlmuerzo] = useState('');
+  const [duracionAlmuerzo, setDuracionAlmuerzo] = useState('');
   const [resultado, setResultado] = useState(null);
   const [turnosGuardados, setTurnosGuardados] = useState({});
   const [mostrarModalCalendario, setMostrarModalCalendario] = useState(false);
@@ -149,6 +152,11 @@ export default function App() {
 
   const [mostrarRelojEntrada, setMostrarRelojEntrada] = useState(false);
   const [mostrarRelojSalida, setMostrarRelojSalida] = useState(false);
+  const [mostrarRelojAlmuerzo, setMostrarRelojAlmuerzo] = useState(false);
+
+  // --- Configuración del almuerzo (Ajustes) ---
+  const [almuerzoRemunerado, setAlmuerzoRemunerado] = useState(false);
+  const [almuerzoDuracionDefault, setAlmuerzoDuracionDefault] = useState('60');
 
   // --- Rango de fechas para el resumen (por defecto: mes actual) ---
   const [rangoInicio, setRangoInicio] = useState(dayjs().startOf('month').format('YYYY-MM-DD'));
@@ -253,6 +261,8 @@ export default function App() {
         if (config.pctDominicalFestivo) setPctDominicalFestivo(config.pctDominicalFestivo);
         if (config.pctExtraDiurna) setPctExtraDiurna(config.pctExtraDiurna);
         if (config.pctExtraNocturna) setPctExtraNocturna(config.pctExtraNocturna);
+        if (config.almuerzoRemunerado !== undefined) setAlmuerzoRemunerado(config.almuerzoRemunerado);
+        if (config.almuerzoDuracionDefault) setAlmuerzoDuracionDefault(config.almuerzoDuracionDefault);
       }
     } catch (error) {
       console.error("Error al cargar configuración:", error);
@@ -277,9 +287,16 @@ export default function App() {
     guardarConfiguracion({
       horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal, valorHoraOrdinaria,
       pctNocturno, pctDominicalFestivo, pctExtraDiurna, pctExtraNocturna,
+      almuerzoRemunerado, almuerzoDuracionDefault,
     });
   }, [horaInicioNocturno, horaFinNocturno, festivosPersonalizados, topeExtraSemanal, valorHoraOrdinaria, configCargada,
-      pctNocturno, pctDominicalFestivo, pctExtraDiurna, pctExtraNocturna]);
+      pctNocturno, pctDominicalFestivo, pctExtraDiurna, pctExtraNocturna, almuerzoRemunerado, almuerzoDuracionDefault]);
+
+  // Prellena la duración de almuerzo de un registro nuevo con el valor por defecto de
+  // Ajustes, solo cuando termina de cargar la configuración y no hay un turno ya abierto.
+  useEffect(() => {
+    if (configCargada && !resultado) setDuracionAlmuerzo(almuerzoDuracionDefault);
+  }, [configCargada]);
 
   const cargarTurnosDesdememoria = async () => {
     try {
@@ -293,7 +310,9 @@ export default function App() {
           setResultado(datosParseados[hoy]);
           setHoraEntrada(datosParseados[hoy].horaEntradaGuardada);
           setHoraSalida(datosParseados[hoy].horaSalidaGuardada);
-          setJornadaLaboral(datosParseados[hoy].jornadaBase || '8');
+          setHoraCorteExtra(datosParseados[hoy].horaCorteExtra || '');
+          setHoraInicioAlmuerzo(datosParseados[hoy].horaInicioAlmuerzo || '');
+          setDuracionAlmuerzo(datosParseados[hoy].duracionAlmuerzo || '');
         }
       }
     } catch (error) {
@@ -328,6 +347,20 @@ export default function App() {
     setMostrarRelojSalida(false);
     if (fechaSeleccionada) {
       setHoraSalida(dayjs(fechaSeleccionada).format('HH:mm'));
+    }
+  };
+
+  const alCambiarAlmuerzo = (event, fechaSeleccionada) => {
+    setMostrarRelojAlmuerzo(false);
+    if (fechaSeleccionada) {
+      setHoraInicioAlmuerzo(dayjs(fechaSeleccionada).format('HH:mm'));
+    }
+  };
+
+  const alCambiarCorteExtra = (event, fechaSeleccionada) => {
+    setMostrarRelojCorteExtra(false);
+    if (fechaSeleccionada) {
+      setHoraCorteExtra(dayjs(fechaSeleccionada).format('HH:mm'));
     }
   };
 
@@ -673,26 +706,26 @@ export default function App() {
       setResultado(turnoDeEseDia);
       setHoraEntrada(turnoDeEseDia.horaEntradaGuardada);
       setHoraSalida(turnoDeEseDia.horaSalidaGuardada);
-      // Turnos guardados antes de este cambio no tienen jornadaBase: se usa '8' por defecto
-      setJornadaLaboral(turnoDeEseDia.jornadaBase || '8');
+      // Turnos guardados antes de este cambio no tienen horaCorteExtra: queda vacío
+      // hasta que el usuario la vuelva a definir si quiere editar ese turno.
+      setHoraCorteExtra(turnoDeEseDia.horaCorteExtra || '');
+      setHoraInicioAlmuerzo(turnoDeEseDia.horaInicioAlmuerzo || '');
+      setDuracionAlmuerzo(turnoDeEseDia.duracionAlmuerzo || '');
     } else {
       setResultado(null);
       setHoraEntrada('');
       setHoraSalida('');
-      setJornadaLaboral('');
+      setHoraCorteExtra('');
+      setHoraInicioAlmuerzo('');
+      setDuracionAlmuerzo(almuerzoDuracionDefault);
     }
   };
 
   const calcularHorasYGuardar = () => {
     if (!horaEntrada || !horaSalida) { Alert.alert("Datos incompletos", "Por favor selecciona ambas horas"); return; }
 
-    const jornadaNumerica = parsearDecimal(jornadaLaboral);
-    if (jornadaLaboral === '' || isNaN(jornadaNumerica)) {
-      Alert.alert("Jornada inválida", "Ingresa un número válido de horas para la jornada base (ej: 8 u 8.5).");
-      return;
-    }
-    if (jornadaNumerica < 0 || jornadaNumerica > 24) {
-      Alert.alert("Jornada inválida", "La jornada base no puede ser negativa ni superar 24 horas.");
+    if (horaCorteExtra === '') {
+      Alert.alert("Falta la hora de corte", "Selecciona a qué hora empiezan las horas extra ese día.");
       return;
     }
 
@@ -703,8 +736,35 @@ export default function App() {
     let salida = dayjs(`${fechaSeleccionada} ${horaSalida}`, 'YYYY-MM-DD HH:mm');
     if (salida.isBefore(entrada) || salida.isSame(entrada)) { salida = salida.add(1, 'day'); }
 
+    // El corte de horas extra es un instante fijo del reloj (se ancla al día del turno
+    // y, si cae antes de la entrada, se traslada al día siguiente, igual que la salida).
+    // El almuerzo no lo desplaza: si dices "las extra empiezan a las 17:00", empiezan a
+    // las 17:00 exactas, tomes o no almuerzo antes.
+    let corteInstante = dayjs(`${fechaSeleccionada} ${horaCorteExtra}`, 'YYYY-MM-DD HH:mm');
+    if (corteInstante.isBefore(entrada)) { corteInstante = corteInstante.add(1, 'day'); }
+
+    // --- Tiempo de almuerzo (si no es remunerado, se excluye del conteo) ---
+    const lunchHabilitado = !almuerzoRemunerado && horaInicioAlmuerzo !== '';
+    let almuerzoInicio = null;
+    let almuerzoFin = null;
+    let duracionAlmuerzoMin = 0;
+
+    if (lunchHabilitado) {
+      duracionAlmuerzoMin = parsearDecimal(duracionAlmuerzo);
+      if (duracionAlmuerzo === '' || isNaN(duracionAlmuerzoMin) || duracionAlmuerzoMin <= 0) {
+        Alert.alert("Almuerzo inválido", "Ingresa una duración de almuerzo válida en minutos, o borra la hora de inicio si no tomaste almuerzo.");
+        return;
+      }
+      almuerzoInicio = dayjs(`${fechaSeleccionada} ${horaInicioAlmuerzo}`, 'YYYY-MM-DD HH:mm');
+      if (almuerzoInicio.isBefore(entrada)) { almuerzoInicio = almuerzoInicio.add(1, 'day'); }
+      if (!almuerzoInicio.isBefore(salida)) {
+        Alert.alert("Almuerzo fuera de turno", "La hora de inicio del almuerzo debe estar dentro del horario del turno.");
+        return;
+      }
+      almuerzoFin = almuerzoInicio.add(duracionAlmuerzoMin, 'minute');
+    }
+
     const totalMinutos = salida.diff(entrada, 'minute');
-    const jornadaMinutos = jornadaNumerica * 60;
 
     // Cache local para no recalcular festivos del mismo día varias veces dentro del loop
     const cacheDF = {};
@@ -722,12 +782,20 @@ export default function App() {
     let minExtraNocturna = 0;  // Hora extra nocturna (75%)
     let minExtraDiurnaDF = 0;  // Extra diurna dominical/festivo (115%)
     let minExtraNocturnaDF = 0;// Extra nocturna dominical/festivo (165%)
+    let minAlmuerzoExcluido = 0;
+    let minutosTrabajados = 0; // Minutos realmente trabajados (excluye el almuerzo)
 
     for (let i = 0; i < totalMinutos; i++) {
       let minutoActual = entrada.add(i, 'minute');
+
+      if (lunchHabilitado && !minutoActual.isBefore(almuerzoInicio) && minutoActual.isBefore(almuerzoFin)) {
+        minAlmuerzoExcluido++;
+        continue;
+      }
+
       let horaDelReloj = minutoActual.hour();
       let isNight = esMinutoNocturno(horaDelReloj, minutoActual.minute());
-      let isExtra = i >= jornadaMinutos;
+      let isExtra = !minutoActual.isBefore(corteInstante);
       let isDF = esDF(minutoActual.format('YYYY-MM-DD'));
 
       if (isExtra) {
@@ -737,13 +805,14 @@ export default function App() {
         if (isDF) { if (isNight) minNocturnaDF++; else minDiurnaDF++; }
         else { if (isNight) minNocturnaOrd++; else minDiurnaOrd++; }
       }
+      minutosTrabajados++;
     }
 
     const huboExtras = (minExtraDiurna + minExtraNocturna + minExtraDiurnaDF + minExtraNocturnaDF) > 0;
     const huboDominicalFestivo = (minDiurnaDF + minNocturnaDF + minExtraDiurnaDF + minExtraNocturnaDF) > 0;
 
     const desgloseResultados = {
-      total: (totalMinutos / 60).toFixed(2),
+      total: (minutosTrabajados / 60).toFixed(2),
       diurnas: (minDiurnaOrd / 60).toFixed(2),
       nocturnas: (minNocturnaOrd / 60).toFixed(2),
       diurnasDF: (minDiurnaDF / 60).toFixed(2),
@@ -754,7 +823,10 @@ export default function App() {
       extraNocturnasDF: (minExtraNocturnaDF / 60).toFixed(2),
       horaEntradaGuardada: horaEntrada,
       horaSalidaGuardada: horaSalida,
-      jornadaBase: jornadaLaboral,
+      horaCorteExtra: horaCorteExtra,
+      horaInicioAlmuerzo: lunchHabilitado ? horaInicioAlmuerzo : '',
+      duracionAlmuerzo: lunchHabilitado ? duracionAlmuerzo : '',
+      almuerzoExcluidoHoras: (minAlmuerzoExcluido / 60).toFixed(2),
       tieneExtra: huboExtras,
       esDominicalOFestivo: huboDominicalFestivo
     };
@@ -778,6 +850,8 @@ export default function App() {
           setTurnosGuardados(nuevosTurnos);
           guardarTurnoEnMemoria(nuevosTurnos);
           setResultado(null); setHoraEntrada(''); setHoraSalida('');
+          setHoraInicioAlmuerzo(''); setDuracionAlmuerzo(almuerzoDuracionDefault);
+          setHoraCorteExtra('');
           setMostrarModalRegistro(false);
         }
       }
@@ -1023,21 +1097,60 @@ export default function App() {
                 <DateTimePicker value={convertirTextoAFecha(horaSalida)} mode="time" is24Hour={true} display="default" onChange={alCambiarSalida} />
               )}
 
+              {!almuerzoRemunerado && (
+                <>
+                  <View style={styles.inputContainer}>
+                    <Text style={styles.label}>Hora de Inicio de Almuerzo (opcional)</Text>
+                    <Text style={styles.configSectionHint}>
+                      Ese tiempo se resta de las horas trabajadas. Si no tomaste almuerzo, deja este campo vacío.
+                    </Text>
+                    <TouchableOpacity style={styles.timeSelector} onPress={() => setMostrarRelojAlmuerzo(true)}>
+                      <Text style={[styles.timeText, !horaInicioAlmuerzo && styles.placeholderText]}>
+                        {horaInicioAlmuerzo ? horaInicioAlmuerzo : "Toca para seleccionar..."}
+                      </Text>
+                    </TouchableOpacity>
+                    {horaInicioAlmuerzo !== '' && (
+                      <TouchableOpacity style={styles.quitarAlmuerzoButton} onPress={() => setHoraInicioAlmuerzo('')} activeOpacity={0.7}>
+                        <Ionicons name="close-circle-outline" size={18} color="#FF3B30" />
+                        <Text style={styles.quitarAlmuerzoButtonText}>Quitar hora de almuerzo</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {mostrarRelojAlmuerzo && (
+                    <DateTimePicker value={convertirTextoAFecha(horaInicioAlmuerzo)} mode="time" is24Hour={true} display="default" onChange={alCambiarAlmuerzo} />
+                  )}
+
+                  {horaInicioAlmuerzo !== '' && (
+                    <View style={styles.inputContainer}>
+                      <Text style={styles.label}>Duración del Almuerzo (minutos)</Text>
+                      <TextInput
+                        style={[styles.timeSelector, styles.inputText]}
+                        value={duracionAlmuerzo}
+                        onChangeText={setDuracionAlmuerzo}
+                        keyboardType="numeric"
+                        placeholder="Ej: 60"
+                        placeholderTextColor="#999"
+                      />
+                    </View>
+                  )}
+                </>
+              )}
+
               <View style={styles.inputContainer}>
-                <Text style={styles.label}>Jornada Base (Horas)</Text>
+                <Text style={styles.label}>Hora de Inicio de Horas Extra</Text>
                 <Text style={styles.configSectionHint}>
-                  Son las horas que trabajas antes de que empiecen a contar como extra
-                  (normalmente lo que dice tu contrato). Si no la sabes, revisa tu contrato
-                  o pregunta en RRHH — en Colombia suele ser entre 6 y 8 horas.
+                  Puedes cambiarla cada vez que registres un turno. Todo lo trabajado desde
+                  esta hora en adelante se cuenta como extra, tomes o no almuerzo antes.
                 </Text>
-                <TextInput
-                  style={[styles.timeSelector, styles.inputText]}
-                  value={jornadaLaboral}
-                  onChangeText={setJornadaLaboral}
-                  keyboardType="numeric"
-                  placeholder="Ej: 8"
-                  placeholderTextColor="#999"
-                />
+                <TouchableOpacity style={styles.timeSelector} onPress={() => setMostrarRelojCorteExtra(true)}>
+                  <Text style={[styles.timeText, !horaCorteExtra && styles.placeholderText]}>
+                    {horaCorteExtra ? horaCorteExtra : "Toca para seleccionar..."}
+                  </Text>
+                </TouchableOpacity>
+                {mostrarRelojCorteExtra && (
+                  <DateTimePicker value={convertirTextoAFecha(horaCorteExtra)} mode="time" is24Hour={true} display="default" onChange={alCambiarCorteExtra} />
+                )}
               </View>
 
               <TouchableOpacity style={styles.button} onPress={calcularHorasYGuardar}>
@@ -1235,6 +1348,39 @@ export default function App() {
 
                 <View style={styles.divider} />
 
+                <Text style={styles.configSectionTitle}>Almuerzo</Text>
+                <Text style={styles.configSectionHint}>
+                  Define si el tiempo de almuerzo se paga o se descuenta de las horas trabajadas.
+                </Text>
+
+                <View style={[styles.inputContainer, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
+                  <Text style={styles.label}>Almuerzo remunerado</Text>
+                  <Switch
+                    value={almuerzoRemunerado}
+                    onValueChange={setAlmuerzoRemunerado}
+                    trackColor={{ false: '#ccc', true: '#007AFF' }}
+                  />
+                </View>
+
+                {!almuerzoRemunerado && (
+                  <View style={styles.inputContainer}>
+                    <Text style={styles.label}>Duración por Defecto (minutos)</Text>
+                    <Text style={styles.configSectionHint}>
+                      Se sugiere automáticamente al registrar un turno nuevo; puedes cambiarla en cada turno si ese día fue distinto.
+                    </Text>
+                    <TextInput
+                      style={[styles.timeSelector, styles.inputText]}
+                      value={almuerzoDuracionDefault}
+                      onChangeText={setAlmuerzoDuracionDefault}
+                      keyboardType="numeric"
+                      placeholder="Ej: 60"
+                      placeholderTextColor="#999"
+                    />
+                  </View>
+                )}
+
+                <View style={styles.divider} />
+
                 <Text style={styles.configSectionTitle}>Tope de Horas Extra Semanal</Text>
                 <Text style={styles.configSectionHint}>
                   Límite semanal de horas extra usado para la barra de progreso (por defecto 12 hrs).
@@ -1328,6 +1474,11 @@ export default function App() {
               </View>
             )}
             <Text style={styles.totalText}>⏱ Total Día: {resultado.total} hrs</Text>
+            {parseFloat(resultado.almuerzoExcluidoHoras || 0) > 0 && (
+              <Text style={styles.configSectionHint}>
+                🍽️ Almuerzo descontado: {resultado.almuerzoExcluidoHoras}h ({resultado.horaInicioAlmuerzo})
+              </Text>
+            )}
             <View style={styles.divider} />
 
             <Text style={styles.sectionLabel}>Horas Ordinarias</Text>
@@ -1708,6 +1859,12 @@ const styles = StyleSheet.create({
   buttonText: { color: '#fff', textAlign: 'center', fontSize: 18, fontWeight: 'bold' },
   deleteButton: { backgroundColor: 'transparent', padding: 15, borderRadius: 10, marginTop: 10, borderWidth: 1, borderColor: '#FF3B30' },
   deleteButtonText: { color: '#FF3B30', textAlign: 'center', fontSize: 18, fontWeight: 'bold' },
+  quitarAlmuerzoButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: 'transparent', paddingVertical: 8, paddingHorizontal: 12,
+    borderRadius: 8, borderWidth: 1, borderColor: '#FF3B30', marginTop: 8, alignSelf: 'flex-start',
+  },
+  quitarAlmuerzoButtonText: { color: '#FF3B30', fontSize: 13, fontWeight: '600' },
   resultCard: { marginTop: 30, backgroundColor: '#fff', padding: 20, borderRadius: 10, borderWidth: 1, borderColor: '#e0e0e0', elevation: 2 },
   resultTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10, color: '#333', textAlign: 'center' },
   shareButtonSolid: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#007AFF', borderRadius: 10, paddingVertical: 12, marginTop: 15, gap: 6 },
